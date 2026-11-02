@@ -79,7 +79,7 @@ class DesktopPet(QWidget):
         self.favorability = 50       
         self.voice_enabled = True     
         self.last_interaction_time = time.time()  
-        self.todo_list = []  # 👈 【新增】儲存待辦事項清單
+        self.todo_list = []  
         
         self.initUI()
         self.initAnimation()
@@ -87,7 +87,7 @@ class DesktopPet(QWidget):
         self.initRandomSpeaking()    
         self.initNeglectTimer()      
         self.initDiscordRPC()        
-        self.initSystemMonitor()     
+        self.initSystemMonitor()     # 👈 初始化 CPU + RAM 雙效能監控
         
         # 啟動後自動播報天氣問候
         QTimer.singleShot(2000, self.check_weather_and_greet)
@@ -248,11 +248,12 @@ class DesktopPet(QWidget):
             self.update_discord_status(f"好感度下降了 ({self.favorability}) 💢")
             self.last_interaction_time = current_time
 
+    # 👈 【升級】同時監控 CPU 與 RAM (記憶體)
     def initSystemMonitor(self):
-        self.cpu_alert_cooldown = 0  
+        self.system_alert_cooldown = 0  # 避免頻繁警告
         self.monitor_timer = QTimer(self)
         self.monitor_timer.timeout.connect(self.check_system_resources)
-        self.monitor_timer.start(10000)  
+        self.monitor_timer.start(10000)  # 每 10 秒檢查一次
 
     def check_system_resources(self):
         if self.bubble_widget.isVisible() or self.dragging:
@@ -260,13 +261,25 @@ class DesktopPet(QWidget):
 
         try:
             cpu_usage = psutil.cpu_percent(interval=None)
+            ram_info = psutil.virtual_memory()
+            ram_usage = ram_info.percent  # 取得記憶體使用百分比
             current_time = time.time()
 
-            if cpu_usage > 85 and current_time - self.cpu_alert_cooldown > 180:
-                text = f"⚠️ CPU 正在燃燒！(使用率 {cpu_usage:.0f}%) 主人小心當機喔！"
+            # 如果 CPU 超過 85% 或 RAM 超過 85%，且距離上次警告超過 3 分鐘 (180秒)
+            if (cpu_usage > 85 or ram_usage > 85) and current_time - self.system_alert_cooldown > 180:
+                if cpu_usage > 85 and ram_usage > 85:
+                    text = f"⚠️ 電腦負荷過重！CPU: {cpu_usage:.0f}% | RAM: {ram_usage:.0f}% 主人小心當機！"
+                    speech = "哇！CPU跟記憶體都快爆掉囉，主人注意一下！"
+                elif cpu_usage > 85:
+                    text = f"⚠️ CPU 正在燃燒！(使用率 {cpu_usage:.0f}%) 主人小心當機喔！"
+                    speech = "哇！電腦好燙，CPU 負荷太高囉！"
+                else:
+                    text = f"⚠️ 記憶體快滿啦！(RAM 使用率 {ram_usage:.0f}%) 記得清理背景程式喔！"
+                    speech = "記憶體快被塞滿囉，主人要不要關掉一些分頁？"
+
                 self.show_speech_bubble(text)
-                self.speak_text("哇！電腦好燙，CPU 負荷太高囉！")
-                self.cpu_alert_cooldown = current_time
+                self.speak_text(speech)
+                self.system_alert_cooldown = current_time
         except Exception as e:
             print(f"系統監控錯誤: {e}")
 
@@ -305,7 +318,6 @@ class DesktopPet(QWidget):
 
         threading.Thread(target=fetch_async, daemon=True).start()
 
-    # 👈 【新增】待辦事項與定時提醒功能
     def add_todo_item(self):
         self.last_interaction_time = time.time()
         task, ok1 = QInputDialog.getText(self, "新增待辦事項", "請輸入代辦內容：")
@@ -315,7 +327,6 @@ class DesktopPet(QWidget):
                 ms = minutes * 60 * 1000
                 self.todo_list.append(task)
                 
-                # 建立單次計時器觸發提醒
                 timer = QTimer(self)
                 timer.setSingleShot(True)
                 timer.timeout.connect(lambda: self.trigger_todo_alarm(task))
@@ -345,10 +356,9 @@ class DesktopPet(QWidget):
             msg = "目前的待辦清單：\n" + "\n".join([f"• {t}" for t in self.todo_list])
         QMessageBox.information(self, "待辦事項總覽", msg)
 
-    # 👈 【新增】桌面截圖小幫手功能
     def take_screenshot(self):
         self.last_interaction_time = time.time()
-        self.hide()  # 暫時隱藏桌寵，才不會把桌寵自己也拍進截圖裡
+        self.hide()  
         QTimer.singleShot(300, self._capture_screen_process)
 
     def _capture_screen_process(self):
@@ -365,7 +375,7 @@ class DesktopPet(QWidget):
             
             screenshot.save(full_path, "png")
             
-            self.show()  # 截圖完成後顯示回來
+            self.show()  
             try:
                 winsound.Beep(1200, 150)
             except:
@@ -580,18 +590,18 @@ class DesktopPet(QWidget):
             pet_choice = random.choice(items)
             
             if user_choice == pet_choice:
-                result_text = f"我出【{pet_choice}】。平手耶！"
+                result_text = f"我出【{pet_choice}】. 平手耶！"
                 self.speak_text("我們平手呢！")
             elif (
                 (user_choice == "剪刀" and pet_choice == "布") or
                 (user_choice == "石頭" and pet_choice == "剪刀") or
                 (user_choice == "布" and pet_choice == "石頭")
             ):
-                result_text = f"我出【{pet_choice}】。你贏了！好厲害～"
+                result_text = f"我出【{pet_choice}】. 你贏了！好厲害～"
                 self.speak_text("哼，算你厲害，讓你贏一次！")
                 self.favorability = min(self.favorability + 3, 100)
             else:
-                result_text = f"我出【{pet_choice}】。我贏啦！哈哈～"
+                result_text = f"我出【{pet_choice}】. 我贏啦！哈哈～"
                 self.speak_text("耶！我贏了，再來一次嗎？")
                 self.favorability = max(self.favorability - 2, 0)
                 
@@ -619,7 +629,6 @@ class DesktopPet(QWidget):
         alarm_action = menu.addAction("⏰ 設定休息鬧鐘")  
         weather_action = menu.addAction("🌤️ 查詢目前天氣")
         
-        # 👈 【新增】待辦事項與截圖的右鍵選單項目
         todo_menu = menu.addMenu("📝 待辦事項與提醒")
         add_todo_action = todo_menu.addAction("➕ 新增待辦提醒")
         view_todo_action = todo_menu.addAction("📋 查看待辦清單")
@@ -662,11 +671,11 @@ class DesktopPet(QWidget):
             self.set_pomodoro_timer()
         elif action == weather_action:
             self.manual_check_weather()
-        elif action == add_todo_action:  # 👈 【新增】處理新增待辦
+        elif action == add_todo_action:
             self.add_todo_item()
-        elif action == view_todo_action:  # 👈 【新增】處理查看待辦
+        elif action == view_todo_action:
             self.show_todo_list()
-        elif action == screenshot_action:  # 👈 【新增】處理桌面截圖
+        elif action == screenshot_action:
             self.take_screenshot()
         elif action == voice_action:
             self.voice_enabled = not self.voice_enabled
