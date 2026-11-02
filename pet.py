@@ -12,9 +12,6 @@ from gtts import gTTS
 import tempfile
 import threading
 
-# ==========================================
-# 🔑 請直接把你的 Gemini API 金鑰填在下方引號中
-# ==========================================
 import os
 from dotenv import load_dotenv
 load_dotenv()
@@ -36,7 +33,7 @@ class AIWorker(QThread):
     def run(self):
         try:
             if not API_KEY:
-                self.finished.emit("哎呀，你還沒在程式碼上方填入 API 金鑰喔！")
+                self.finished.emit("哎呀，你還沒在 .env 中填入 API 金鑰喔！")
                 return
 
             client = genai.Client(api_key=API_KEY)
@@ -56,22 +53,22 @@ class AIWorker(QThread):
 
 class DesktopPet(QWidget):
     def speak_text(self, text):
-        """ 在背景執行緒中將文字轉語音並靜默播放，絕對不跳視窗 """
+        """ 在背景執行緒中將文字轉語音並靜默播放（若語音開關啟用） """
+        if not self.voice_enabled:
+            return  # 若語音關閉則直接跳過
+
         def run_tts():
             try:
                 from gtts import gTTS
                 from playsound import playsound
                 import tempfile
 
-                # 將文字轉成語音
                 tts = gTTS(text=text, lang='zh-TW', slow=False)
                 
-                # 建立安全且會自動刪除的暫存音訊檔
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
                     temp_filename = fp.name
                 tts.save(temp_filename)
                 
-                # 在背景安靜播放音訊，播完自動刪除檔案
                 playsound(temp_filename)
                 try:
                     os.remove(temp_filename)
@@ -80,21 +77,28 @@ class DesktopPet(QWidget):
             except Exception as e:
                 print(f"語音播放失敗: {e}")
 
-        # 開啟執行緒播放語音
         threading.Thread(target=run_tts, daemon=True).start()
 
     def __init__(self):
         super().__init__()
+        # 系統狀態控制欄位
+        self.favorability = 50       # 好感度系統 (初始 50)[cite: 1]
+        self.voice_enabled = True     # 右鍵語音開關 (預設開啟)[cite: 1]
+        self.last_interaction_time = time.time()  # 記錄最後互動時間[cite: 1]
+        
         self.initUI()
         self.initAnimation()
         self.initMovement()
-        self.initDiscordRPC()  # 初始化 Discord 狀態顯示
+        self.initRandomSpeaking()    # 初始化隨機主動說話機制[cite: 1]
+        self.initNeglectTimer()      # 初始化冷落扣分機制[cite: 1]
+        self.initDiscordRPC()        # 初始化 Discord 狀態顯示[cite: 1]
 
     def initUI(self):
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.SubWindow)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
         self.label = QLabel(self)
+        self.label.setAlignment(Qt.AlignCenter)  # 強制圖片置中，防止縮放邊緣被切掉[cite: 1]
         
         self.bubble_widget = QWidget(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.SubWindow)
         self.bubble_widget.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -114,8 +118,6 @@ class DesktopPet(QWidget):
         self.is_walking = True
 
     def initDiscordRPC(self):
-        # ⚠️ 如果你有到 Discord Developer Portal 建立 App，可以把 Client ID 換成你的
-        # 如果沒有，可以先用下面這個測試用的公開 Client ID 或是留白測試
         self.RPC_CLIENT_ID = "1566775719961427970" 
         try:
             self.RPC = Presence(self.RPC_CLIENT_ID)
@@ -129,7 +131,7 @@ class DesktopPet(QWidget):
                 large_text="桌面寵物"
             )
         except Exception as e:
-            print(f"Discord RPC 連線提示（未開 Discord 或 ID 錯誤可忽略）: {e}")
+            print(f"Discord RPC 連線提示: {e}")
 
     def update_discord_status(self, state_text):
         try:
@@ -187,6 +189,75 @@ class DesktopPet(QWidget):
 
         self.is_walking = True
 
+    def initRandomSpeaking(self):
+        self.random_speak_timer = QTimer(self)
+        self.random_speak_timer.timeout.connect(self.try_random_speak)
+        self.random_speak_timer.start(15000)
+
+    def try_random_speak(self):
+        if self.dragging or self.bubble_widget.isVisible():
+            return
+
+        # 30% 機率觸發隨機說話
+        if random.random() < 0.3:
+            # 💖 好感度 90 以上：超級黏人的超甜台詞
+            if self.favorability >= 90:
+                quotes = [
+                    "最喜歡跟主人在一起了！啾咪~ 💕",
+                    "主人看我一眼嘛，我好無聊喔~ ✨",
+                    "只要能陪著主人，去哪裡都可以！",
+                    "抱抱~ 主人今天有沒有想我呀？🥰"
+                ]
+            # 💖 好感度 80 ~ 89：很友好、貼心的台詞
+            elif self.favorability >= 80:
+                quotes = [
+                    "主人主人，今天心情很好耶！✨",
+                    "一直在這裡陪著你喔~",
+                    "工作辛苦了！摸摸我休息一下吧💕",
+                    "有我在幫你打氣，今天一定沒問題的！"
+                ]
+            # 💛 好感度 50 ~ 79：普通、日常的台詞
+            elif self.favorability >= 50:
+                quotes = [
+                    "你在忙嗎？不要累壞囉~", 
+                    "好想吃點好吃的喔 🍖", 
+                    "發呆中... 💤",
+                    "伸個懶腰~ 唔哇...",
+                    "kskbl"
+                ]
+            # 💢 好感度低於 50：傲嬌、鬧脾氣的台詞
+            else:
+                quotes = [
+                    "哼...才沒有一直偷看你呢！", 
+                    "好無聊喔，來陪我聊天啦！", 
+                    "有點餓了，要不要餵我一下？",
+                    "哼，你都不理人家...",
+                    "我想大便"
+                ]
+
+            text = random.choice(quotes)
+            self.show_speech_bubble(text)
+            self.speak_text(text)
+
+    def initNeglectTimer(self):
+        """ 超過 60 秒沒理它會扣 5 點好感度並傲嬌抱怨 """
+        self.neglect_timer = QTimer(self)
+        self.neglect_timer.timeout.connect(self.check_neglect)
+        self.neglect_timer.start(30000)
+
+    def check_neglect(self):
+        if self.dragging or self.bubble_widget.isVisible() or self.favorability <= 0:
+            return
+
+        current_time = time.time()
+        if current_time - self.last_interaction_time > 60:
+            self.favorability = max(self.favorability - 5, 0)
+            text = "哼，都都不理我..."
+            self.show_speech_bubble(text)
+            self.speak_text(text)
+            self.update_discord_status(f"好感度下降了 ({self.favorability}) 💢")
+            self.last_interaction_time = current_time
+
     def decide_new_direction(self):
         choice = random.choice([-1, 0, 1])
         if choice == 0:
@@ -237,8 +308,14 @@ class DesktopPet(QWidget):
             transform.scale(self.scale_factor, self.scale_factor)
 
         scaled_pixmap = pixmap.transformed(transform, Qt.SmoothTransformation)
+        
+        padding = 10
+        w = scaled_pixmap.width() + padding
+        h = scaled_pixmap.height() + padding
+
+        self.resize(w, h)
+        self.label.resize(w, h)
         self.label.setPixmap(scaled_pixmap)
-        self.resize(scaled_pixmap.width(), scaled_pixmap.height())
 
     def next_frame(self):
         if not self.frames:
@@ -261,6 +338,7 @@ class DesktopPet(QWidget):
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
+            self.last_interaction_time = time.time()
             self.open_ai_chat()
             event.accept()
 
@@ -269,6 +347,7 @@ class DesktopPet(QWidget):
         if ok and text:
             self.show_speech_bubble("思考中...")
             self.update_discord_status("正在跟主人聊天 💬")
+            self.favorability = min(self.favorability + 1, 100)[cite: 1]
             
             self.ai_worker = AIWorker(text)
             self.ai_worker.finished.connect(self.handle_ai_response)
@@ -277,8 +356,6 @@ class DesktopPet(QWidget):
     def handle_ai_response(self, reply_text):
         self.show_speech_bubble(reply_text)
         self.update_discord_status("正在跟主人聊天 💬")
-        
-        # 【新增】呼叫語音朗讀 AI 的回覆內容
         self.speak_text(reply_text)
 
     def show_speech_bubble(self, text):
@@ -307,10 +384,10 @@ class DesktopPet(QWidget):
             self.dragging = True
             self.offset = event.globalPos() - self.pos()
             self.update_image()
+            self.last_interaction_time = time.time()  # 更新互動時間[cite: 1]
             
-            # 【新增】點擊音效 (使用 Windows 內建提示音，或你可以改成播放音效檔)
             try:
-                winsound.Beep(800, 100) # 頻率 800Hz，持續 100 毫秒
+                winsound.Beep(800, 100)
             except:
                 pass
 
@@ -344,11 +421,103 @@ class DesktopPet(QWidget):
         self.bubble_widget.close()
         event.accept()
 
+    def play_rps_game(self):
+        """ 猜拳小遊戲邏輯 """
+        self.last_interaction_time = time.time()
+        items = ["剪刀", "石頭", "布"]
+        user_choice, ok = QInputDialog.getItem(self, "猜拳小遊戲", "請選擇你的出拳：", items, 0, False)
+        
+        if ok and user_choice:
+            pet_choice = random.choice(items)
+            
+            # 判斷輸贏
+            if user_choice == pet_choice:
+                result_text = f"我出【{pet_choice}】。平手耶！"
+                self.speak_text("我們平手呢！")
+            elif (
+                (user_choice == "剪刀" and pet_choice == "布") or
+                (user_choice == "石頭" and pet_choice == "剪刀") or
+                (user_choice == "布" and pet_choice == "石頭")
+            ):
+                result_text = f"我出【{pet_choice}】。你贏了！好厲害～"
+                self.speak_text("哼，算你厲害，讓你贏一次！")
+                self.favorability = min(self.favorability + 3, 100)  # 贏了加好感
+            else:
+                result_text = f"我出【{pet_choice}】。我贏啦！哈哈～"
+                self.speak_text("耶！我贏了，再來一次嗎？")
+                self.favorability = max(self.favorability - 2, 0)   # 輸了扣一點點好感增加趣味
+                
+            self.show_speech_bubble(result_text)
+            self.update_discord_status(f"正在玩猜拳遊戲 🎮")
+
     def show_context_menu(self, pos):
         menu = QMenu(self)
+        
+        # 1. 好感度顯示[cite: 1]
+        if self.favorability >= 80:
+            status_text = "❤️ 好感度: 很高 (非常黏你)"
+        elif self.favorability >= 50:
+            status_text = "💛 好感度: 普通 (相處融洽)"
+        else:
+            status_text = "💢 好感度: 偏低 (有點傲嬌)"
+
+        favor_action = menu.addAction(status_text)
+        favor_action.setEnabled(False)
+        
+        menu.addSeparator()
+        
+        # 2. 互動選項
+        pet_action = menu.addAction("摸摸頭 (增加好感)")
+        punch_action = menu.addAction("💥 打她一拳 (減少好感)")  # 【新增】打她一拳
+        rps_action = menu.addAction("🎮 玩猜拳小遊戲")             # 【新增】猜拳小遊戲
+        
+        # 3. 語音開關選項[cite: 1]
+        voice_status_text = "🔊 語音朗讀：開啟" if self.voice_enabled else "🔇 語音朗讀：關閉"
+        voice_action = menu.addAction(voice_status_text)
+        
+        # 4. 透明度選單[cite: 1]
+        opacity_menu = menu.addMenu("調整透明度")
+        action_100 = opacity_menu.addAction("完全不透明 (1.0)")
+        action_80 = opacity_menu.addAction("半透明 (0.8)")
+        action_50 = opacity_menu.addAction("高透明 (0.5)")
+        
+        menu.addSeparator()
         exit_action = menu.addAction("退出桌寵")
+        
         action = menu.exec_(pos)
-        if action == exit_action:
+        self.last_interaction_time = time.time()  # 點擊選單也算互動
+        
+        if action == pet_action:
+            self.favorability = min(self.favorability + 5, 100)
+            msg = f"哼哼~被摸頭了，好感度上升！(目前: {self.favorability})"
+            self.show_speech_bubble(msg)
+            self.speak_text("哼哼，感覺還不錯嘛！")
+            self.update_discord_status(f"好感度 {self.favorability} 🐾")
+        elif action == punch_action:
+            # 【新增】打她一拳邏輯
+            self.favorability = max(self.favorability - 5, 0)
+            msg = f"好痛！你幹嘛打我... (目前好感度: {self.favorability})"
+            self.show_speech_bubble(msg)
+            self.speak_text("好痛！你為什麼要打我，太過分了！")
+            try:
+                winsound.Beep(300, 200)  # 低沉的警告音
+            except:
+                pass
+            self.update_discord_status(f"被打了一拳，好感度 {self.favorability} 💢")
+        elif action == rps_action:
+            # 【新增】啟動猜拳遊戲
+            self.play_rps_game()
+        elif action == voice_action:
+            self.voice_enabled = not self.voice_enabled
+            state_str = "開啟" if self.voice_enabled else "關閉"
+            self.show_speech_bubble(f"語音功能已{state_str}囉！")
+        elif action == action_100:
+            self.setWindowOpacity(1.0)
+        elif action == action_80:
+            self.setWindowOpacity(0.8)
+        elif action == action_50:
+            self.setWindowOpacity(0.5)
+        elif action == exit_action:
             try:
                 if hasattr(self, 'RPC'):
                     self.RPC.close()
