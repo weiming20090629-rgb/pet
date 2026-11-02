@@ -1,6 +1,6 @@
 # 🐾 Desktop Pet - Quick Setup
 
-極簡專案環境設定指南。
+專案環境設定指南。
 
 ---
 
