@@ -3,11 +3,11 @@ import random
 import os
 import time
 import psutil
-import requests  # 👈 【新增】用於抓取天氣資訊
+import requests
 from google import genai
 from PyQt5.QtCore import Qt, QPoint, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap, QTransform
-from PyQt5.QtWidgets import QApplication, QLabel, QMenu, QWidget, QInputDialog
+from PyQt5.QtWidgets import QApplication, QLabel, QMenu, QWidget, QInputDialog, QMessageBox
 from pypresence import Presence
 import winsound
 from gtts import gTTS
@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 API_KEY = os.getenv("GEMINI_API_KEY")
+DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1566775719961427970")
+
 script_dir = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -31,7 +33,7 @@ class AIWorker(QThread):
     def run(self):
         try:
             if not API_KEY:
-                self.finished.emit("哎呀，你還沒在 .env 中填入 API 金鑰喔！")
+                self.finished.emit("哎呀，你還沒在 .env 中填入 GEMINI_API_KEY 金鑰喔！")
                 return
 
             client = genai.Client(api_key=API_KEY)
@@ -61,9 +63,8 @@ class DesktopPet(QWidget):
                     temp_filename = fp.name
                 tts.save(temp_filename)
                 
-                playsound_path = temp_filename
                 from playsound import playsound
-                playsound(playsound_path)
+                playsound(temp_filename)
                 try:
                     os.remove(temp_filename)
                 except:
@@ -78,6 +79,7 @@ class DesktopPet(QWidget):
         self.favorability = 50       
         self.voice_enabled = True     
         self.last_interaction_time = time.time()  
+        self.todo_list = []  # 👈 【新增】儲存待辦事項清單
         
         self.initUI()
         self.initAnimation()
@@ -87,7 +89,7 @@ class DesktopPet(QWidget):
         self.initDiscordRPC()        
         self.initSystemMonitor()     
         
-        # 👈 【新增】啟動後自動播報天氣問候
+        # 啟動後自動播報天氣問候
         QTimer.singleShot(2000, self.check_weather_and_greet)
 
     def initUI(self):
@@ -115,9 +117,8 @@ class DesktopPet(QWidget):
         self.is_walking = True
 
     def initDiscordRPC(self):
-        self.RPC_CLIENT_ID = "1566775719961427970" 
         try:
-            self.RPC = Presence(self.RPC_CLIENT_ID)
+            self.RPC = Presence(DISCORD_CLIENT_ID)
             self.RPC.connect()
             self.start_time = time.time()
             self.RPC.update(
@@ -269,14 +270,11 @@ class DesktopPet(QWidget):
         except Exception as e:
             print(f"系統監控錯誤: {e}")
 
-    # 👈 【新增】取得天氣與問候邏輯
     def get_weather_info(self):
         try:
-            # 利用 wttr.in 取得目前IP所在地的簡短天氣 (format: 天氣狀況 氣溫)
             response = requests.get("https://wttr.in/?format=%C+%t", timeout=3)
             if response.status_code == 200:
-                weather_text = response.text.strip()
-                return weather_text
+                return response.text.strip()
         except:
             pass
         return None
@@ -306,6 +304,80 @@ class DesktopPet(QWidget):
             self.update_discord_status("查詢天氣中 ⛅")
 
         threading.Thread(target=fetch_async, daemon=True).start()
+
+    # 👈 【新增】待辦事項與定時提醒功能
+    def add_todo_item(self):
+        self.last_interaction_time = time.time()
+        task, ok1 = QInputDialog.getText(self, "新增待辦事項", "請輸入代辦內容：")
+        if ok1 and task:
+            minutes, ok2 = QInputDialog.getInt(self, "設定提醒時間", f"幾分鐘後提醒你執行【{task}】？", 10, 1, 300, 1)
+            if ok2 and minutes:
+                ms = minutes * 60 * 1000
+                self.todo_list.append(task)
+                
+                # 建立單次計時器觸發提醒
+                timer = QTimer(self)
+                timer.setSingleShot(True)
+                timer.timeout.connect(lambda: self.trigger_todo_alarm(task))
+                timer.start(ms)
+                
+                msg = f"已記下！會在 {minutes} 分鐘後提醒你：{task} 📝"
+                self.show_speech_bubble(msg)
+                self.speak_text(f"好滴，我會記得提醒你做：{task}")
+                self.update_discord_status(f"待辦事項：{task} 📝")
+
+    def trigger_todo_alarm(self, task):
+        msg = f"叮咚！時間到囉！該處理這件事了：【{task}】💪"
+        self.show_speech_bubble(msg)
+        self.speak_text(f"主人！時間到了，快去處理：{task}")
+        try:
+            winsound.Beep(900, 400)
+            winsound.Beep(1100, 400)
+        except:
+            pass
+        self.update_discord_status(f"提醒完成事項：{task} 🔔")
+
+    def show_todo_list(self):
+        self.last_interaction_time = time.time()
+        if not self.todo_list:
+            msg = "目前沒有任何待辦事項喔！過得很輕鬆呢~ ✨"
+        else:
+            msg = "目前的待辦清單：\n" + "\n".join([f"• {t}" for t in self.todo_list])
+        QMessageBox.information(self, "待辦事項總覽", msg)
+
+    # 👈 【新增】桌面截圖小幫手功能
+    def take_screenshot(self):
+        self.last_interaction_time = time.time()
+        self.hide()  # 暫時隱藏桌寵，才不會把桌寵自己也拍進截圖裡
+        QTimer.singleShot(300, self._capture_screen_process)
+
+    def _capture_screen_process(self):
+        try:
+            screen = QApplication.primaryScreen()
+            screenshot = screen.grabWindow(0)
+            
+            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
+            if not os.path.exists(desktop_path):
+                desktop_path = script_dir
+                
+            filename = f"DesktopPet_Screenshot_{int(time.time())}.png"
+            full_path = os.path.join(desktop_path, filename)
+            
+            screenshot.save(full_path, "png")
+            
+            self.show()  # 截圖完成後顯示回來
+            try:
+                winsound.Beep(1200, 150)
+            except:
+                pass
+                
+            msg = "喀擦！畫面已經截圖並存到桌面囉！📸"
+            self.show_speech_bubble(msg)
+            self.speak_text("截圖成功！已經幫主人存到桌面上囉！")
+            self.update_discord_status("截圖小幫手運作中 📸")
+        except Exception as e:
+            self.show()
+            print(f"截圖失敗: {e}")
 
     def set_pomodoro_timer(self):
         self.last_interaction_time = time.time()
@@ -545,7 +617,14 @@ class DesktopPet(QWidget):
         punch_action = menu.addAction("💥 打她一拳 (減少好感)")
         rps_action = menu.addAction("🎮 玩猜拳小遊戲")
         alarm_action = menu.addAction("⏰ 設定休息鬧鐘")  
-        weather_action = menu.addAction("🌤️ 查詢目前天氣")  # 👈 【新增】右鍵天氣查詢選項
+        weather_action = menu.addAction("🌤️ 查詢目前天氣")
+        
+        # 👈 【新增】待辦事項與截圖的右鍵選單項目
+        todo_menu = menu.addMenu("📝 待辦事項與提醒")
+        add_todo_action = todo_menu.addAction("➕ 新增待辦提醒")
+        view_todo_action = todo_menu.addAction("📋 查看待辦清單")
+        
+        screenshot_action = menu.addAction("📸 桌面截圖小幫手")
         
         voice_status_text = "🔊 語音朗讀：開啟" if self.voice_enabled else "🔇 語音朗讀：關閉"
         voice_action = menu.addAction(voice_status_text)
@@ -581,8 +660,14 @@ class DesktopPet(QWidget):
             self.play_rps_game()
         elif action == alarm_action:
             self.set_pomodoro_timer()
-        elif action == weather_action:  # 👈 【新增】處理天氣點擊
+        elif action == weather_action:
             self.manual_check_weather()
+        elif action == add_todo_action:  # 👈 【新增】處理新增待辦
+            self.add_todo_item()
+        elif action == view_todo_action:  # 👈 【新增】處理查看待辦
+            self.show_todo_list()
+        elif action == screenshot_action:  # 👈 【新增】處理桌面截圖
+            self.take_screenshot()
         elif action == voice_action:
             self.voice_enabled = not self.voice_enabled
             state_str = "開啟" if self.voice_enabled else "關閉"
