@@ -1,3 +1,4 @@
 .env
 __pycache__/
 *.pyc
+pet_save.json
