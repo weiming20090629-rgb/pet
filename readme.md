@@ -34,9 +34,9 @@
 ├── pet_save.json                 # 本機玩家存檔/金幣記錄 (已透過 .gitignore 排除)
 ├── .gitignore                    # Git 版本控制排除規則
 └── README.md                     # 專案說明文件
+```
 ---
-
-## 🛠️ 1. 環境需求與套件安裝 (Environment Setup)
+##  Environment Setup
 
 ### 系統與 Python 版本
 - **OS**: Windows 10 / 11
@@ -44,16 +44,12 @@
 
 ### 安裝依賴套件
 在終端機執行以下指令安裝所有必要套件：
-
 ```bash
 pip install PyQt5 google-genai pypresence gTTS "playsound<1.3.0" python-dotenv psutil requests pywin32
 ```
 
 ---
-
-## 🔑 2. 環境變數設定 (.env)
-
-專案根目錄下需包含 `.env` 檔案以讀取 API 金鑰與設定檔。
+##  環境變數設定 (.env)
 
 ### PowerShell 快速建立指令：
 ```powershell
@@ -69,7 +65,7 @@ DISCORD_CLIENT_ID=你的Discord應用程式ID
 
 ---
 
-## 🚀 3. 執行程式 (Run)
+##  執行程式 (Run)
 
 在專案目錄下執行：
 
