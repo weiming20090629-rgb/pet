@@ -35,7 +35,7 @@
 在終端機執行以下指令安裝所有必要套件：
 
 ```bash
-pip install PyQt5 google-genai pypresence gTTS "playsound<1.3.0" python-dotenv psutil requests
+pip install PyQt5 google-genai pypresence gTTS "playsound<1.3.0" python-dotenv psutil requests pywin32
 ```
 
 ---
