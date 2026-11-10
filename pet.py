@@ -2,6 +2,7 @@ import sys
 import random
 import os
 import time
+import json
 import psutil
 import requests
 from google import genai
@@ -14,6 +15,15 @@ from gtts import gTTS
 import tempfile
 import threading
 
+# 引入 win32 相關套件來實現關閉其他視窗功能
+try:
+    import win32gui
+    import win32process
+    import win32con
+    HAS_WIN32 = True
+except ImportError:
+    HAS_WIN32 = False
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -21,6 +31,7 @@ API_KEY = os.getenv("GEMINI_API_KEY")
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1566775719961427970")
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
+DATA_FILE = os.path.join(script_dir, "pet_save.json")
 
 
 class AIWorker(QThread):
@@ -51,12 +62,59 @@ class AIWorker(QThread):
             self.finished.emit(f"哎呀，連線失敗：{str(e)}")
 
 
+class WeatherWorker(QThread):
+    finished = pyqtSignal(str)
+
+    def run(self):
+        try:
+            headers = {"User-Agent": "curl/7.68.0"}
+            response = requests.get("https://wttr.in/?format=%C+%t", headers=headers, timeout=8)
+            
+            if response.status_code == 200:
+                text = response.text.strip()
+                if "<html" in text.lower() or "<div" in text.lower():
+                    self.finished.emit("")
+                else:
+                    self.finished.emit(text)
+            else:
+                self.finished.emit("")
+        except Exception as e:
+            print(f"天氣連線錯誤: {e}")
+            self.finished.emit("")
+
+
 class DesktopPet(QWidget):
+    def load_data(self):
+        if os.path.exists(DATA_FILE):
+            try:
+                with open(DATA_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.favorability = data.get("favorability", 50)
+                    self.coins = data.get("coins", 0)
+            except:
+                self.favorability = 50
+                self.coins = 0
+        else:
+            self.favorability = 50
+            self.coins = 0
+
+    def save_data(self):
+        try:
+            data = {
+                "favorability": self.favorability,
+                "coins": self.coins
+            }
+            with open(DATA_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"存檔失敗: {e}")
+
     def speak_text(self, text):
         if not self.voice_enabled:
             return
 
         def run_tts():
+            temp_filename = None
             try:
                 tts = gTTS(text=text, lang='zh-TW', slow=False)
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
@@ -65,21 +123,26 @@ class DesktopPet(QWidget):
                 
                 from playsound import playsound
                 playsound(temp_filename)
-                try:
-                    os.remove(temp_filename)
-                except:
-                    pass
             except Exception as e:
                 print(f"語音播放失敗: {e}")
+            finally:
+                if temp_filename and os.path.exists(temp_filename):
+                    try:
+                        time.sleep(0.5)
+                        os.remove(temp_filename)
+                    except:
+                        pass
 
         threading.Thread(target=run_tts, daemon=True).start()
 
     def __init__(self):
         super().__init__()
-        self.favorability = 50       
+        self.load_data()  
         self.voice_enabled = True     
         self.last_interaction_time = time.time()  
         self.todo_list = []  
+        self.is_working = False  
+        self.is_reporting_work = False  
         
         self.initUI()
         self.initAnimation()
@@ -87,9 +150,9 @@ class DesktopPet(QWidget):
         self.initRandomSpeaking()    
         self.initNeglectTimer()      
         self.initDiscordRPC()        
-        self.initSystemMonitor()     # 👈 初始化 CPU + RAM 雙效能監控
+        self.initSystemMonitor()     
+        self.initPunishmentTimer()   
         
-        # 啟動後自動播報天氣問候
         QTimer.singleShot(2000, self.check_weather_and_greet)
 
     def initUI(self):
@@ -122,21 +185,21 @@ class DesktopPet(QWidget):
             self.RPC.connect()
             self.start_time = time.time()
             self.RPC.update(
-                state="正在桌面上漫步 🐾",
-                details="與桌面小桌寵互動中",
+                state=f"金幣: {self.coins} 💰 | 好感度: {self.favorability}",
+                details="桌面生活秘書與打工養成中",
                 start=self.start_time,
                 large_image="pet_idle",
                 large_text="桌面寵物"
             )
-        except Exception as e:
-            print(f"Discord RPC 連線提示: {e}")
+        except Exception:
+            pass
 
     def update_discord_status(self, state_text):
         try:
             if hasattr(self, 'RPC'):
                 self.RPC.update(
                     state=state_text,
-                    details="與桌面小桌寵互動中",
+                    details=f"金幣: {self.coins} 💰 | 好感度: {self.favorability}",
                     start=self.start_time,
                     large_image="pet_idle",
                     large_text="桌面寵物"
@@ -160,6 +223,17 @@ class DesktopPet(QWidget):
         idle_path = os.path.join(script_dir, 'pet_idle.png')
         self.idle_pixmap = QPixmap(idle_path)
 
+        work_start_path = os.path.join(script_dir, 'work_start.png')
+        self.work_start_pixmap = QPixmap(work_start_path)
+
+        self.work_loop_files = ['work_1.png', 'work_2.png', 'work_3.png']
+        self.work_loop_frames = []
+        for file in self.work_loop_files:
+            file_path = os.path.join(script_dir, file)
+            pixmap = QPixmap(file_path)
+            if not pixmap.isNull():
+                self.work_loop_frames.append(pixmap)
+
         if not self.frames:
             self.label.setText("🐾 找不到圖片")
             self.label.setStyleSheet(
@@ -170,6 +244,7 @@ class DesktopPet(QWidget):
             return
 
         self.current_frame = 0
+        self.current_work_loop_frame = 0
         self.update_image()
 
         self.timer = QTimer(self)
@@ -193,37 +268,27 @@ class DesktopPet(QWidget):
         self.random_speak_timer.start(15000)
 
     def try_random_speak(self):
-        if self.dragging or self.bubble_widget.isVisible():
+        if self.dragging or self.bubble_widget.isVisible() or self.is_working or self.is_reporting_work:
             return
 
         if random.random() < 0.3:
-            if self.favorability >= 90:
+            if self.favorability <= 0:
                 quotes = [
+                    "氣死我了！好感度歸零，準備接受制裁吧！🔥",
+                    "哼！不把我安撫好，我要把所有視窗通關囉！💢",
+                    "快點跟我道歉！否則通通關掉！"
+                ]
+            elif self.favorability >= 90:
+                quotes = [
+                    f"目前有 {self.coins} 個金幣呢！主人要買什麼給我？💕",
                     "最喜歡跟主人在一起了！啾咪~ 💕",
-                    "主人看我一眼嘛，我好無聊喔~ ✨",
-                    "只要能陪著主人，去哪裡都可以！",
-                    "抱抱~ 主人今天有沒有想我呀？🥰"
-                ]
-            elif self.favorability >= 80:
-                quotes = [
-                    "主人主人，今天心情很好耶！✨",
-                    "一直在這裡陪著你喔~",
-                    "工作辛苦了！摸摸我休息一下吧💕",
-                    "有我在幫你打氣，今天一定沒問題的！"
-                ]
-            elif self.favorability >= 50:
-                quotes = [
-                    "你在忙嗎？不要累壞囉~", 
-                    "好想吃點好吃的喔 🍖", 
-                    "發呆中... 💤",
-                    "伸個懶腰~ 唔哇..."
+                    "主人看我一眼嘛，我好無聊喔~ ✨"
                 ]
             else:
                 quotes = [
-                    "哼...才沒有一直偷看你呢！", 
-                    "好無聊喔，來陪我聊天啦！", 
-                    "有點餓了，要不要餵我一下？",
-                    "哼，你都不理人家..."
+                    f"現在存了 {self.coins} 金幣，打工賺錢好累喔~ 💰",
+                    "你在忙嗎？不要累壞囉~", 
+                    "發呆中... 💤"
                 ]
 
             text = random.choice(quotes)
@@ -236,24 +301,89 @@ class DesktopPet(QWidget):
         self.neglect_timer.start(30000)
 
     def check_neglect(self):
-        if self.dragging or self.bubble_widget.isVisible() or self.favorability <= 0:
+        if self.dragging or self.bubble_widget.isVisible() or self.is_working or self.is_reporting_work or self.favorability <= 0:
             return
 
         current_time = time.time()
         if current_time - self.last_interaction_time > 60:
             self.favorability = max(self.favorability - 5, 0)
+            self.save_data()
             text = "哼，都都不理我..."
             self.show_speech_bubble(text)
             self.speak_text(text)
-            self.update_discord_status(f"好感度下降了 ({self.favorability}) 💢")
+            self.update_discord_status(f"好感度下降 ({self.favorability}) 💢")
             self.last_interaction_time = current_time
 
-    # 👈 【升級】同時監控 CPU 與 RAM (記憶體)
+    def initPunishmentTimer(self):
+        self.punishment_timer = QTimer(self)
+        self.punishment_timer.timeout.connect(self.execute_punishment_loop)
+        self.punishment_timer.start(10000)  
+
+    def execute_punishment_loop(self):
+        if self.favorability <= 0:
+            warning_text = "💢 好感度歸零！本小姐要發飆關閉所有視窗囉！"
+            self.show_speech_bubble(warning_text)
+            self.speak_text("好感度歸零！我要把所有視窗通通關掉！")
+            QTimer.singleShot(3000, self.close_all_other_windows)
+
+    # 👈 【核心修改】將隨機關閉改成關閉所有其他合法視窗
+    def close_all_other_windows(self):
+        if not HAS_WIN32:
+            print("未安裝 pywin32，無法執行關閉視窗功能")
+            return
+
+        current_hwnd = int(self.winId())  # 桌寵主視窗句柄
+        bubble_hwnd = int(self.bubble_widget.winId()) if self.bubble_widget else 0  # 對話框句柄
+        current_pid = os.getpid()  # 當前桌寵程式自身的 PID
+        target_hwnds = []
+
+        def enum_windows_callback(hwnd, extra):
+            nonlocal target_hwnds
+            if win32gui.IsWindowVisible(hwnd):
+                # 排除桌寵主視窗以及對話框視窗
+                if hwnd == current_hwnd or hwnd == bubble_hwnd:
+                    return
+                
+                window_title = win32gui.GetWindowText(hwnd)
+                if not window_title or len(window_title.strip()) == 0:
+                    return
+                
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                
+                # 排除自己的 PID
+                if pid == current_pid:
+                    return
+
+                try:
+                    p = psutil.Process(pid)
+                    p_name = p.name().lower()
+                    
+                    # 👈 【核心修正】加入終端機與命令列工具黑名單，絕對不關閉 PowerShell、CMD、終端機或編輯器
+                    blacklisted_processes = [
+                        "explorer.exe", "dwm.exe", "taskhostw.exe", 
+                        "python.exe", "code.exe", 
+                        "powershell.exe", "cmd.exe", "windowsterminal.exe", "wt.exe"
+                    ]
+                    if p_name in blacklisted_processes:
+                        return
+                except:
+                    return
+
+                target_hwnds.append(hwnd)
+
+        try:
+            win32gui.EnumWindows(enum_windows_callback, None)
+            for hwnd in target_hwnds:
+                win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+            print(f"已成功關閉所有其他視窗（共 {len(target_hwnds)} 個）！")
+        except Exception as e:
+            print(f"執行視窗懲罰失敗: {e}")
+
     def initSystemMonitor(self):
-        self.system_alert_cooldown = 0  # 避免頻繁警告
+        self.system_alert_cooldown = 0  
         self.monitor_timer = QTimer(self)
         self.monitor_timer.timeout.connect(self.check_system_resources)
-        self.monitor_timer.start(10000)  # 每 10 秒檢查一次
+        self.monitor_timer.start(10000)  
 
     def check_system_resources(self):
         if self.bubble_widget.isVisible() or self.dragging:
@@ -262,10 +392,9 @@ class DesktopPet(QWidget):
         try:
             cpu_usage = psutil.cpu_percent(interval=None)
             ram_info = psutil.virtual_memory()
-            ram_usage = ram_info.percent  # 取得記憶體使用百分比
+            ram_usage = ram_info.percent  
             current_time = time.time()
 
-            # 如果 CPU 超過 85% 或 RAM 超過 85%，且距離上次警告超過 3 分鐘 (180秒)
             if (cpu_usage > 85 or ram_usage > 85) and current_time - self.system_alert_cooldown > 180:
                 if cpu_usage > 85 and ram_usage > 85:
                     text = f"⚠️ 電腦負荷過重！CPU: {cpu_usage:.0f}% | RAM: {ram_usage:.0f}% 主人小心當機！"
@@ -283,22 +412,83 @@ class DesktopPet(QWidget):
         except Exception as e:
             print(f"系統監控錯誤: {e}")
 
-    def get_weather_info(self):
+    def start_part_time_job(self):
+        if self.is_working or self.is_reporting_work:
+            self.show_speech_bubble("我正在打工賺錢中耶，別打擾我！💼")
+            return
+
+        self.last_interaction_time = time.time()
+        job_types = [
+            ("超商打工 (輕鬆)", 1, 10, 30),      
+            ("咖啡廳幫忙 (一般)", 3, 35, 60),
+            ("文書外包 (高薪)", 5, 70, 100)
+        ]
+        
+        items = [f"{j[0]} - 耗時 {j[1]} 分鐘 (賺取 {j[2]} 金幣)" for j in job_types]
+        choice, ok = QInputDialog.getItem(self, "選擇打工類型", "請選擇要進行的工作：", items, 0, False)
+        
+        if ok and choice:
+            selected_job = None
+            for j in job_types:
+                if j[0] in choice:
+                    selected_job = j
+                    break
+            
+            if selected_job:
+                name, duration_min, reward_coins, reward_favor = selected_job
+                self.is_working = True
+                self.current_work_loop_frame = 0  
+                self.update_image() 
+                
+                msg = f"出發去【{name}】囉！大約 {duration_min} 分鐘後回來賺錢！💰"
+                self.show_speech_bubble(msg)
+                self.speak_text(f"我去打工賺錢囉，等我回來！")
+                self.update_discord_status(f"正在進行 {name} 💼")
+                
+                ms = duration_min * 60 * 1000
+                QTimer.singleShot(ms, lambda: self.finish_part_time_job(reward_coins, reward_favor, name))
+
+    def finish_part_time_job(self, reward_coins, reward_favor, job_name):
+        self.is_working = False
+        self.is_reporting_work = True 
+        self.update_image() 
+        
+        self.coins += reward_coins
+        self.favorability = min(self.favorability + reward_favor, 100)
+        self.save_data()
+        
+        msg = f"打工結束！完成【{job_name}】，獲得了 {reward_coins} 金幣與好感度！🎉"
+        self.show_speech_bubble(msg)
+        self.speak_text(f"打工回來啦！賺到了好多的金幣呢！")
         try:
-            response = requests.get("https://wttr.in/?format=%C+%t", timeout=3)
-            if response.status_code == 200:
-                return response.text.strip()
+            winsound.Beep(1000, 200)
+            winsound.Beep(1400, 200)
         except:
             pass
-        return None
+        self.update_discord_status(f"金幣: {self.coins} 💰")
+        
+        QTimer.singleShot(4000, self.restore_normal_clothes)
+
+    def restore_normal_clothes(self):
+        self.is_reporting_work = False
+        self.update_image()
+
+    def show_wallet(self):
+        self.last_interaction_time = time.time()
+        coins_display = self.coins
+        msg = f"💰 目前擁有金幣：{coins_display} 枚\n❤️ 目前好感度：{self.favorability} 點\n\n快去右鍵選單讓桌寵去打工賺更多金幣吧！"
+        QMessageBox.information(self, "錢包與狀態", msg)
 
     def check_weather_and_greet(self):
-        weather = self.get_weather_info()
+        self.weather_worker = WeatherWorker()
+        self.weather_worker.finished.connect(self.handle_initial_weather)
+        self.weather_worker.start()
+
+    def handle_initial_weather(self, weather):
         if weather:
-            greeting = f"主人早安/午安！外面氣象顯示：{weather} 唷！氣候變化大要注意身體喔~ 🌤️"
+            greeting = f"主人早安/午安！外面氣象顯示：{weather} 唷！目前金幣 {self.coins} 枚~ 🌤️"
         else:
-            greeting = "哈囉主人！今天也要元氣滿滿地一起加油喔！✨"
-        
+            greeting = f"哈囉主人！今天也要元氣滿滿地賺金幣喔！(目前金幣: {self.coins}) ✨"
         self.show_speech_bubble(greeting)
         self.speak_text(greeting)
 
@@ -306,17 +496,18 @@ class DesktopPet(QWidget):
         self.last_interaction_time = time.time()
         self.show_speech_bubble("正在查詢外面的天氣狀況... 🛰️")
         
-        def fetch_async():
-            weather = self.get_weather_info()
-            if weather:
-                msg = f"報告主人！目前外面天氣：{weather} ⛅"
-            else:
-                msg = "哎呀，連線氣象衛星失敗了，不過今天心情好就是好天氣！"
-            self.show_speech_bubble(msg)
-            self.speak_text(msg)
-            self.update_discord_status("查詢天氣中 ⛅")
+        self.weather_worker = WeatherWorker()
+        self.weather_worker.finished.connect(self.handle_manual_weather)
+        self.weather_worker.start()
 
-        threading.Thread(target=fetch_async, daemon=True).start()
+    def handle_manual_weather(self, weather):
+        if weather:
+            msg = f"報告主人！目前外面天氣：{weather} ⛅"
+        else:
+            msg = "哎呀，連線氣象衛星失敗了，不過今天心情好就是好天氣！"
+        self.show_speech_bubble(msg)
+        self.speak_text(msg)
+        self.update_discord_status("查詢天氣中 ⛅")
 
     def add_todo_item(self):
         self.last_interaction_time = time.time()
@@ -419,6 +610,9 @@ class DesktopPet(QWidget):
         self.update_discord_status("鬧鐘響起提醒休息中 🔔")
 
     def decide_new_direction(self):
+        if self.is_working or self.is_reporting_work:
+            return
+
         choice = random.choice([-1, 0, 1])
         if choice == 0:
             self.is_walking = False
@@ -431,7 +625,7 @@ class DesktopPet(QWidget):
         self.update_image()
 
     def update_position(self):
-        if self.dragging:
+        if self.dragging or self.is_working or self.is_reporting_work:
             return
 
         if self.is_walking:
@@ -454,7 +648,14 @@ class DesktopPet(QWidget):
         if not self.frames:
             return
 
-        if self.dragging:
+        if self.is_reporting_work:
+            pixmap = self.work_start_pixmap if not self.work_start_pixmap.isNull() else self.frames[0]
+        elif self.is_working:
+            if self.work_loop_frames:
+                pixmap = self.work_loop_frames[self.current_work_loop_frame]
+            else:
+                pixmap = self.work_start_pixmap if not self.work_start_pixmap.isNull() else self.frames[0]
+        elif self.dragging:
             pixmap = self.drag_pixmap if not self.drag_pixmap.isNull() else self.frames[0]
         elif not self.is_walking and not self.idle_pixmap.isNull():
             pixmap = self.idle_pixmap
@@ -462,7 +663,7 @@ class DesktopPet(QWidget):
             pixmap = self.frames[self.current_frame]
 
         transform = QTransform()
-        if self.direction == -1 and not self.dragging:
+        if self.direction == -1 and not self.dragging and not self.is_working and not self.is_reporting_work:
             transform.scale(-1 * self.scale_factor, self.scale_factor)
         else:
             transform.scale(self.scale_factor, self.scale_factor)
@@ -480,6 +681,16 @@ class DesktopPet(QWidget):
     def next_frame(self):
         if not self.frames:
             return
+        
+        if self.is_working:
+            if self.work_loop_frames:
+                self.current_work_loop_frame = (self.current_work_loop_frame + 1) % len(self.work_loop_frames)
+                self.update_image()
+            return
+
+        if self.is_reporting_work:
+            return
+
         if self.is_walking and not self.dragging:
             self.current_frame = (self.current_frame + 1) % len(self.frames)
             self.update_image()
@@ -508,6 +719,7 @@ class DesktopPet(QWidget):
             self.show_speech_bubble("思考中...")
             self.update_discord_status("正在跟主人聊天 💬")
             self.favorability = min(self.favorability + 1, 100)
+            self.save_data()
             
             self.ai_worker = AIWorker(text)
             self.ai_worker.finished.connect(self.handle_ai_response)
@@ -590,21 +802,22 @@ class DesktopPet(QWidget):
             pet_choice = random.choice(items)
             
             if user_choice == pet_choice:
-                result_text = f"我出【{pet_choice}】. 平手耶！"
+                result_text = f"我出【{pet_choice}】。平手耶！"
                 self.speak_text("我們平手呢！")
             elif (
                 (user_choice == "剪刀" and pet_choice == "布") or
                 (user_choice == "石頭" and pet_choice == "剪刀") or
                 (user_choice == "布" and pet_choice == "石頭")
             ):
-                result_text = f"我出【{pet_choice}】. 你贏了！好厲害～"
+                result_text = f"我出【{pet_choice}】。你贏了！好厲害～"
                 self.speak_text("哼，算你厲害，讓你贏一次！")
                 self.favorability = min(self.favorability + 3, 100)
             else:
-                result_text = f"我出【{pet_choice}】. 我贏啦！哈哈～"
+                result_text = f"我出【{pet_choice}】。我贏啦！哈哈～"
                 self.speak_text("耶！我贏了，再來一次嗎？")
                 self.favorability = max(self.favorability - 2, 0)
                 
+            self.save_data()
             self.show_speech_bubble(result_text)
             self.update_discord_status("正在玩猜拳遊戲 🎮")
 
@@ -612,11 +825,13 @@ class DesktopPet(QWidget):
         menu = QMenu(self)
         
         if self.favorability >= 80:
-            status_text = "❤️ 好感度: 很高 (非常黏你)"
+            status_text = f"❤️ 好感度: 很高 | 💰 金幣: {self.coins}"
         elif self.favorability >= 50:
-            status_text = "💛 好感度: 普通 (相處融洽)"
+            status_text = f"💛 好感度: 普通 | 💰 金幣: {self.coins}"
+        elif self.favorability > 0:
+            status_text = f"💢 好感度: 偏低 (快歸零囉) | 💰 金幣: {self.coins}"
         else:
-            status_text = "💢 好感度: 偏低 (有點傲嬌)"
+            status_text = f"🔥 好感度: 歸零 (黑化制裁中) | 💰 金幣: {self.coins}"
 
         favor_action = menu.addAction(status_text)
         favor_action.setEnabled(False)
@@ -625,6 +840,8 @@ class DesktopPet(QWidget):
         
         pet_action = menu.addAction("摸摸頭 (增加好感)")
         punch_action = menu.addAction("💥 打她一拳 (減少好感)")
+        job_action = menu.addAction("💼 打工賺錢")          
+        wallet_action = menu.addAction("👛 查看錢包與狀態")  
         rps_action = menu.addAction("🎮 玩猜拳小遊戲")
         alarm_action = menu.addAction("⏰ 設定休息鬧鐘")  
         weather_action = menu.addAction("🌤️ 查詢目前天氣")
@@ -651,12 +868,14 @@ class DesktopPet(QWidget):
         
         if action == pet_action:
             self.favorability = min(self.favorability + 5, 100)
+            self.save_data()
             msg = f"哼哼~被摸頭了，好感度上升！(目前: {self.favorability})"
             self.show_speech_bubble(msg)
             self.speak_text("哼哼，感覺還不錯嘛！")
             self.update_discord_status(f"好感度 {self.favorability} 🐾")
         elif action == punch_action:
             self.favorability = max(self.favorability - 5, 0)
+            self.save_data()
             msg = f"好痛！你幹嘛打我... (目前好感度: {self.favorability})"
             self.show_speech_bubble(msg)
             self.speak_text("好痛！你為什麼要打我，太過分了！")
@@ -665,6 +884,10 @@ class DesktopPet(QWidget):
             except:
                 pass
             self.update_discord_status(f"被打了一拳，好感度 {self.favorability} 💢")
+        elif action == job_action:
+            self.start_part_time_job()
+        elif action == wallet_action:
+            self.show_wallet()
         elif action == rps_action:
             self.play_rps_game()
         elif action == alarm_action:
