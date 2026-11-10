@@ -28,12 +28,12 @@
 │   ├── punishment.py             # 黑化懲罰與系統視窗安全排除機制
 │   └── workers.py                # 背景執行緒 (Gemini AI、天氣 API)
 │
-├── assets/                       # 視覺資源 (圖片檔 1.png ~ 8.png, pet_idle.png 等)
+├── assets/                       # 圖片資源
 ├── main.py                       # 專案啟動入口
-├── .env                          # 環境變數設定檔 (已透過 .gitignore 排除)
-├── pet_save.json                 # 本機玩家存檔/金幣記錄 (已透過 .gitignore 排除)
+├── .env                          # 環境變數設定檔
+├── pet_save.json                 # 本機玩家存檔/金幣記錄
 ├── .gitignore                    # Git 版本控制排除規則
-└── README.md                     # 專案說明文件
+└── README.md                     # 說明文件
 ```
 ---
 ##  Environment Setup
