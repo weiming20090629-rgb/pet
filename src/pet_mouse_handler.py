@@ -1,5 +1,9 @@
 import time
 import winsound
+from .styles import CONTEXT_MENU_STYLE
+from PyQt5.QtCore import QCoreApplication
+from PyQt5.QtGui import QPixmap, QCursor
+from PyQt5.QtWidgets import QLabel
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtWidgets import QMenu, QApplication, QInputDialog
 
@@ -79,7 +83,10 @@ class PetMouseHandler:
     @staticmethod
     def show_context_menu(pet, pos):
         menu = QMenu(pet)
-        
+        menu.setStyleSheet(CONTEXT_MENU_STYLE)
+        menu.setWindowFlags(menu.windowFlags() | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        menu.setAttribute(Qt.WA_TranslucentBackground, True)
+
         if pet.favorability >= 80:
             status_text = f"❤️ 好感度: 很高 | 💰 金幣: {pet.coins}"
         elif pet.favorability >= 50:
@@ -174,3 +181,4 @@ class PetMouseHandler:
                 pass
             pet.bubble_widget.close()
             QApplication.quit()
+            

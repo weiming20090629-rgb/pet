@@ -6,12 +6,14 @@ import json
 import psutil
 from PyQt5.QtCore import Qt, QPoint, QTimer
 from PyQt5.QtWidgets import QApplication, QLabel, QWidget, QInputDialog
+from PyQt5.QtGui import QCursor
 from pypresence import Presence
 import winsound
 from gtts import gTTS
 import tempfile
 import threading
 
+from .styles import CONTEXT_MENU_STYLE, SPEECH_BUBBLE_STYLE
 from .workers import WeatherWorker
 from .punishment import PunishmentManager
 from .pet_animation import PetAnimationManager
@@ -83,6 +85,11 @@ class DesktopPet(QWidget):
         self.is_reporting_work = False  
         
         self.initUI()
+        
+        # ⬇️【加在這裡】讓滑鼠移到桌寵上時變成手形游標
+        self.setMouseTracking(True)
+        self.setCursor(QCursor(Qt.PointingHandCursor))
+        
         if PetAnimationManager.init_animations(self, script_dir):
             self.update_image()
             self.timer = QTimer(self)
@@ -91,7 +98,7 @@ class DesktopPet(QWidget):
 
         self.initMovement()
         self.initRandomSpeaking()    
-        self.initNeglectTimer()      
+        self.initNeglectTimer()     
         self.initDiscordRPC()        
         self.initSystemMonitor()     
         self.initPunishmentTimer()   
@@ -109,11 +116,7 @@ class DesktopPet(QWidget):
         self.bubble_widget.setAttribute(Qt.WA_TranslucentBackground, True)
         
         self.bubble_label = QLabel(self.bubble_widget)
-        self.bubble_label.setStyleSheet(
-            "background-color: rgba(255, 255, 255, 230); color: black; "
-            "border: 2px solid #4a90e2; border-radius: 10px; padding: 8px; "
-            "font-size: 13px; font-weight: bold;"
-        )
+        self.bubble_label.setStyleSheet(SPEECH_BUBBLE_STYLE)
         self.bubble_widget.hide()
         
         self.dragging = False
