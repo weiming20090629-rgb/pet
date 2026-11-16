@@ -1,10 +1,10 @@
-# 🐾 桌面寵物專案 (Desktop Pet)
+#  桌面寵物專案 (Desktop Pet)
 
 一個基於 Python PyQt5 開發的高自由度互動式桌面寵物專案。支援 AI 對話、打工賺錢、模擬股票交易、金幣商店餵食、好感度與飽食度養成，以及動態視窗安全防護機制。
 
 ---
 
-## ✨ 核心特色
+##  核心特色
 
 - **動態視覺動畫**：支援多幀走路、閒置、拖曳以及專屬打工狀態動畫，自動處理方向翻轉與滾輪縮放。
 - **AI 智慧對話**：整合 Google Gemini API，雙擊即可開啟視窗進行自然語言互動。
@@ -58,7 +58,7 @@ pip install PyQt5 miniaudio google-genai pypresence gTTS python-dotenv psutil re
 
 ---
 
-## 🔑 環境變數設定 (.env)
+##  環境變數設定 (.env)
 
 ### PowerShell 快速建立指令：
 ```powershell
@@ -74,7 +74,7 @@ DISCORD_CLIENT_ID=你的Discord應用程式ID
 
 ---
 
-## 🚀 執行程式 (Run)
+##  執行程式 (Run)
 
 在專案目錄下執行：
 
