@@ -4,8 +4,9 @@ import os
 import time
 import json
 import psutil
+import array
 from PyQt5.QtCore import Qt, QPoint, QTimer
-from PyQt5.QtWidgets import QApplication, QLabel, QWidget, QInputDialog
+from PyQt5.QtWidgets import QApplication, QLabel, QWidget, QInputDialog, QComboBox
 from PyQt5.QtGui import QCursor
 from pypresence import Presence
 import winsound
@@ -53,22 +54,73 @@ class DesktopPet(QWidget):
         if not self.voice_enabled:
             return
 
+        current_volume = getattr(self, "voice_volume", 0.8)
+
         def run_tts():
             temp_filename = None
+            device = None
             try:
                 tts = gTTS(text=text, lang='zh-TW', slow=False)
                 with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
                     temp_filename = fp.name
                 tts.save(temp_filename)
-                
-                from playsound import playsound
-                playsound(temp_filename)
+
+                import miniaudio
+
+                decoded = miniaudio.decode_file(
+                    temp_filename,
+                    output_format=miniaudio.SampleFormat.SIGNED16,
+                    nchannels=2,
+                    sample_rate=44100,
+                )
+
+                samples = array.array("h", decoded.samples)
+                for i in range(len(samples)):
+                    val = int(samples[i] * current_volume)
+                    samples[i] = max(-32768, min(32767, val))
+
+                pcm_bytes = samples.tobytes()
+                total_frames = len(samples) // decoded.nchannels
+                frame_bytes = decoded.nchannels * 2
+                done = threading.Event()
+
+                def pcm_generator():
+                    pos = 0
+                    required_frames = yield b""
+                    while pos < total_frames:
+                        num_frames = required_frames if required_frames and required_frames > 0 else 1024
+                        take = min(num_frames, total_frames - pos)
+                        start_byte = pos * frame_bytes
+                        end_byte = start_byte + take * frame_bytes
+                        pos += take
+                        required_frames = yield pcm_bytes[start_byte:end_byte]
+
+                    done.set()
+                    while True:
+                        yield b""
+
+                device = miniaudio.PlaybackDevice(
+                    output_format=decoded.sample_format,
+                    nchannels=decoded.nchannels,
+                    sample_rate=decoded.sample_rate,
+                )
+                gen = pcm_generator()
+                next(gen)
+                device.start(gen)
+                done.wait(timeout=30)
+                time.sleep(0.2)
             except Exception as e:
                 print(f"語音播放失敗: {e}")
             finally:
+                if device is not None:
+                    try:
+                        device.stop()
+                        device.close()
+                    except:
+                        pass
                 if temp_filename and os.path.exists(temp_filename):
                     try:
-                        time.sleep(0.5)
+                        time.sleep(0.2)
                         os.remove(temp_filename)
                     except:
                         pass
@@ -77,6 +129,7 @@ class DesktopPet(QWidget):
 
     def __init__(self):
         super().__init__()
+        self.voice_volume = 0.8
         self.load_data()  
         self.voice_enabled = True     
         self.last_interaction_time = time.time()  
@@ -297,68 +350,6 @@ class DesktopPet(QWidget):
         self.show_speech_bubble(msg)
         self.speak_text(msg)
         self.update_discord_status("查詢天氣中 ⛅")
-
-    def take_screenshot(self):
-        self.last_interaction_time = time.time()
-        self.hide()  
-        QTimer.singleShot(300, self._capture_screen_process)
-
-    def _capture_screen_process(self):
-        try:
-            screen = QApplication.primaryScreen()
-            screenshot = screen.grabWindow(0)
-            
-            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-            if not os.path.exists(desktop_path):
-                desktop_path = script_dir
-                
-            filename = f"DesktopPet_Screenshot_{int(time.time())}.png"
-            full_path = os.path.join(desktop_path, filename)
-            
-            screenshot.save(full_path, "png")
-            
-            self.show()  
-            try:
-                winsound.Beep(1200, 150)
-            except:
-                pass
-                
-            msg = "喀擦！畫面已經截圖並存到桌面囉！📸"
-            self.show_speech_bubble(msg)
-            self.speak_text("截圖成功！已經幫主人存到桌面上囉！")
-            self.update_discord_status("截圖小幫手運作中 📸")
-        except Exception as e:
-            self.show()
-            print(f"截圖失敗: {e}")
-
-    def set_pomodoro_timer(self):
-        self.last_interaction_time = time.time()
-        minutes, ok = QInputDialog.getInt(self, "設定休息鬧鐘", "請輸入幾分鐘後提醒你休息：", 25, 1, 180, 1)
-        if ok and minutes:
-            ms = minutes * 60 * 1000
-            if hasattr(self, 'pomodoro_qtimer'):
-                self.pomodoro_qtimer.stop()
-            
-            self.pomodoro_qtimer = QTimer(self)
-            self.pomodoro_qtimer.setSingleShot(True)
-            self.pomodoro_qtimer.timeout.connect(self.alarm_triggered)
-            self.pomodoro_qtimer.start(ms)
-            
-            text = f"好滴！已設定 {minutes} 分鐘後提醒你休息喔！⏰"
-            self.show_speech_bubble(text)
-            self.speak_text(text)
-            self.update_discord_status(f"設定了 {minutes} 分鐘鬧鐘 ⏰")
-
-    def alarm_triggered(self):
-        text = "叮咚！時間到囉！快起來走動、喝個水休息一下吧！🌟"
-        self.show_speech_bubble(text)
-        self.speak_text("主人主人！鬧鐘響囉，快起來休息！")
-        try:
-            winsound.Beep(1000, 500)
-            winsound.Beep(1200, 500)
-        except:
-            pass
-        self.update_discord_status("鬧鐘響起提醒休息中 🔔")
 
     def decide_new_direction(self):
         if self.is_working or self.is_reporting_work:
