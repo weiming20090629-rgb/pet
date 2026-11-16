@@ -20,26 +20,26 @@
 ```text
 你的桌寵專案資料夾/
 │
-├── src/                          # 核心 Python 程式碼模組
-│   ├── pet_window.py             # 主視窗中樞、存檔讀寫與移動控制
-│   ├── pet_animation.py          # 圖像載入、動畫更新與方向縮放處理
-│   ├── pet_mouse_handler.py      # 滑鼠事件 (拖曳、雙擊對話、滾輪縮放)
-│   ├── pet_menu.py               # 右鍵選單建構、音量/透明度滑桿與動作分派
-│   ├── pet_actions.py            # 打工系統、猜拳小遊戲、待辦提醒與錢包狀態
-│   ├── pet_shop.py               # 金幣商店視窗 (餵食加飽食與好感、功能道具)
-│   ├── pet_stock.py              # 專業股票交易室 (即時報價、K線圖、持股與紀錄)
-│   ├── pet_monitors.py           # 飽食度定時扣減、冷落檢查、系統監控與 Discord RPC
-│   ├── pet_voice.py              # gTTS 語音合成與 miniaudio 音量播放
-│   ├── punishment.py             # 黑化懲罰與系統視窗安全排除機制
-│   ├── workers.py                # 背景執行緒 (Gemini AI、天氣 API)
-│   └── styles.py                 # 統一管理 QSS 介面視覺樣式
+├── src/                          
+│   ├── pet_window.py            
+│   ├── pet_animation.py         
+│   ├── pet_mouse_handler.py     
+│   ├── pet_menu.py               
+│   ├── pet_actions.py           
+│   ├── pet_shop.py               
+│   ├── pet_stock.py             
+│   ├── pet_monitors.py           
+│   ├── pet_voice.py              
+│   ├── punishment.py            
+│   ├── workers.py              
+│   └── styles.py                
 │
-├── assets/                       # 圖片資源
-├── main.py                       # 專案啟動入口
-├── .env                          # 環境變數設定檔
-├── pet_save.json                 # 本機玩家存檔 (金幣/好感/飽食度/持股/道具)
-├── .gitignore                    # Git 版本控制排除規則
-└── README.md                     # 說明文件
+├── assets/                       
+├── main.py                       
+├── .env                         
+├── pet_save.json                
+├── .gitignore                   
+└── README.md                   
 ```
 
 ---
