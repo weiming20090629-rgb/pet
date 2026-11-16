@@ -698,6 +698,15 @@ class StockDialog(QDialog):
 
         earned_coins = int(round(shares * self.current_price * COIN_RATE))
         realized_pnl = int(round((self.current_price - avg_cost) * shares * COIN_RATE))
+        bonus_coins = 0
+        bonus_note = ""
+        inv = getattr(self.pet, "inventory", {})
+        if realized_pnl > 0 and inv.get("charm", 0) > 0:
+            inv["charm"] -= 1
+            bonus_coins = int(round(realized_pnl * 0.5))
+            realized_pnl += bonus_coins
+            earned_coins += bonus_coins
+            bonus_note = f"（🍀幸運符發威，利潤 1.5 倍！額外 +{bonus_coins} 金幣）"
         self.pet.coins += earned_coins
 
         remaining = round(owned - shares, 4)
@@ -712,7 +721,7 @@ class StockDialog(QDialog):
         self.pet.trade_history.insert(
             0,
             f"[{now_str}] 賣出 {self.current_symbol} {shares:.2f}股 @ {self.current_price:.2f} "
-            f"(+{earned_coins}金幣｜實現損益 {pnl_sign}{realized_pnl})"
+            f"(+{earned_coins}金幣｜實現損益 {pnl_sign}{realized_pnl}){bonus_note}"
         )
         self.pet.trade_history = self.pet.trade_history[:50]
 
@@ -723,7 +732,7 @@ class StockDialog(QDialog):
         self._show_tip(
             "賣出成功",
             f"已賣出 {shares:.2f} 股 {self.current_symbol}，獲得 {earned_coins} 金幣！\n"
-            f"本次實現損益：{pnl_sign}{realized_pnl} 金幣",
+            f"本次實現損益：{pnl_sign}{realized_pnl} 金幣{bonus_note}",
         )
 
     def _refresh_portfolio_view(self):
