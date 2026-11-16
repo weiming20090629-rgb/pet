@@ -3,8 +3,8 @@ import os
 import time
 import json
 from PyQt5.QtCore import Qt, QPoint, QTimer
-from PyQt5.QtWidgets import QApplication, QLabel, QWidget
-from PyQt5.QtGui import QCursor
+from PyQt5.QtWidgets import QApplication, QLabel, QWidget, QSystemTrayIcon, QMenu
+from PyQt5.QtGui import QCursor, QIcon
 
 from .styles import SPEECH_BUBBLE_STYLE
 from .workers import WeatherWorker
@@ -12,6 +12,7 @@ from .pet_animation import PetAnimationManager
 from .pet_mouse_handler import PetMouseHandler
 from .pet_voice import PetVoiceManager
 from .pet_monitors import PetMonitorManager
+from .pet_menu import PetMenuManager
 
 script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_FILE = os.path.join(script_dir, "pet_save.json")
@@ -143,7 +144,64 @@ class DesktopPet(QWidget):
             self.show_speech_bubble(msg)
             self.speak_text(f"換上新造型囉，{self.skin} 好看嗎？")
             self.update_discord_status(f"造型：{self.skin} ✨")
+            self._update_tray_icon()
 
+    def initSystemTray(self):
+        """建立 Windows 右下角系統工作列（系統托盤）圖示與快捷選單"""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+
+        self.tray_icon = QSystemTrayIcon(self)
+        self._update_tray_icon()
+        self.tray_icon.setToolTip(f"桌面寵物 (好感度: {self.favorability} | 金幣: {self.coins})")
+
+        # 建立托盤右鍵選單
+        tray_menu = QMenu()
+
+        show_action = tray_menu.addAction("🐾 喚醒 / 移至螢幕中央")
+        show_action.triggered.connect(self.bring_to_front)
+
+        status_action = tray_menu.addAction("👛 查看錢包與狀態")
+        status_action.triggered.connect(lambda: PetMenuManager.show_context_menu(self, QCursor.pos()))
+
+        tray_menu.addSeparator()
+
+        exit_action = tray_menu.addAction("❌ 退出桌寵")
+        exit_action.triggered.connect(self.close)
+
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
+        self.tray_icon.show()
+
+    def _update_tray_icon(self):
+        """使用桌寵目前的待機圖或第一張動畫圖作為托盤圖示"""
+        if not hasattr(self, "tray_icon"):
+            return
+        pm = getattr(self, "idle_pixmap", None)
+        if pm is None or pm.isNull():
+            frames = getattr(self, "frames", [])
+            if frames:
+                pm = frames[0]
+        if pm is not None and not pm.isNull():
+            self.tray_icon.setIcon(QIcon(pm))
+
+    def _on_tray_activated(self, reason):
+        """左鍵點擊或雙擊系統托盤圖示時，把桌寵移回螢幕中央並置頂"""
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            self.bring_to_front()
+
+    def bring_to_front(self):
+        """將桌寵移回主螢幕中央並顯示在最上層"""
+        screen = QApplication.primaryScreen().geometry()
+        center_x = (screen.width() - self.width()) // 2
+        center_y = (screen.height() - self.height()) // 2
+        self.move(center_x, center_y)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        self.show_speech_bubble("主人叫我嗎？我在這裡喔！✨")
+   
+   
     def speak_text(self, text):
         PetVoiceManager.speak(self, text)
 
@@ -157,6 +215,7 @@ class DesktopPet(QWidget):
         self.todo_list = []
         self.is_working = False
         self.is_reporting_work = False
+        self.current_job_type = "default"
 
         self.initUI()
         self.setWindowOpacity(self.settings.get("opacity", 1.0))
@@ -169,6 +228,8 @@ class DesktopPet(QWidget):
             self.timer = QTimer(self)
             self.timer.timeout.connect(lambda: PetAnimationManager.next_frame(self))
             self.timer.start(150)
+
+        self.initSystemTray()
 
         self.initMovement()
         self.initRandomSpeaking()
@@ -366,7 +427,40 @@ class DesktopPet(QWidget):
         PetMouseHandler.handle_mouse_release(self, event)
 
     def closeEvent(self, event):
+        # 1. 停止所有定時器，避免關閉過程中又觸發新任務
+        timer_names = [
+            "timer",
+            "move_timer",
+            "change_dir_timer",
+            "random_speak_timer",
+            "neglect_timer",
+            "satiety_timer",
+            "monitor_timer",
+            "punishment_timer",
+            "bubble_timer",
+        ]
+        for t_name in timer_names:
+            t = getattr(self, t_name, None)
+            if t is not None and t.isActive():
+                t.stop()
+
+        # 2. 安全斷開並等待背景 QThread（AI 聊天、天氣查詢）收尾
+        for w_name in ("ai_worker", "weather_worker"):
+            worker = getattr(self, w_name, None)
+            if worker is not None and worker.isRunning():
+                try:
+                    worker.finished.disconnect()
+                except Exception:
+                    pass
+                worker.quit()
+                worker.wait(1500)  # 最多溫和等待 1.5 秒
+
+        # 3. 存檔、關閉 Discord RPC 與氣泡視窗
         self.save_data()
         PetMonitorManager.close_discord_rpc(self)
-        self.bubble_widget.close()
+        if hasattr(self, "bubble_widget") and self.bubble_widget is not None:
+            self.bubble_widget.close()
+        if hasattr(self, "tray_icon"): self.tray_icon.hide()
+
         event.accept()
+        QApplication.quit()

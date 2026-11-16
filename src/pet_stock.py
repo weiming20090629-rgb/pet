@@ -458,9 +458,11 @@ class StockDialog(QDialog):
         self.est_cost_label = QLabel("預估金額：0 金幣")
 
         self.buy_btn = QPushButton("買入")
+        self.buy_btn.setEnabled(False)
         self.buy_btn.clicked.connect(self.buy_stock)
 
         self.sell_btn = QPushButton("賣出")
+        self.sell_btn.setEnabled(False)
         self.sell_btn.clicked.connect(self.sell_stock)
 
         trade_row.addWidget(QLabel("股數："))
@@ -590,8 +592,21 @@ class StockDialog(QDialog):
             self._show_tip("提示", "請先輸入股票代號（例如 AAPL 或 2330）。")
             return
 
+        # 若前一次查價執行緒還在跑，先斷開舊信號避免畫面錯亂
+        if self.worker is not None and self.worker.isRunning():
+            try:
+                self.worker.price_loaded.disconnect()
+            except Exception:
+                pass
+
+        # 查詢期間鎖定查價與交易按鈕，並重置當前報價狀態，防止用舊價格誤下單
+        self.current_price = 0.0
         self.search_btn.setEnabled(False)
+        self.buy_btn.setEnabled(False)
+        self.sell_btn.setEnabled(False)
+        self._update_est_cost_label()
         self.quote_label.setText("查詢真實股價與技術圖表中...")
+
         self.worker = StockPriceWorker(raw, self.current_interval)
         self.worker.price_loaded.connect(self._on_price_loaded)
         self.worker.start()
@@ -599,12 +614,20 @@ class StockDialog(QDialog):
     def _on_price_loaded(self, symbol: str, price: float, candles: list, tf_label: str, err: str):
         self.search_btn.setEnabled(True)
         if err:
+            self.current_symbol = ""
+            self.current_price = 0.0
+            self.buy_btn.setEnabled(False)
+            self.sell_btn.setEnabled(False)
             self.quote_label.setText(err)
             return
 
         self.current_symbol = symbol
         self.current_price = price
         self.latest_prices[symbol] = price
+
+        # 確認拿到有效新報價後，才解鎖買入與賣出按鈕
+        self.buy_btn.setEnabled(True)
+        self.sell_btn.setEnabled(True)
 
         coin_cost_per_share = price * COIN_RATE
         self.quote_label.setText(
@@ -616,6 +639,21 @@ class StockDialog(QDialog):
         self.kline_widget.set_data(symbol, candles, tf_label, avg_cost)
         self._update_est_cost_label()
         self._refresh_portfolio_view()
+
+    def closeEvent(self, event):
+        """關閉視窗時安全斷開並等待背景抓價執行緒，防止視窗銷毀後更新 UI 導致閃退"""
+        for w, sig in (
+            (self.worker, "price_loaded"),
+            (self.refresh_worker, "all_loaded"),
+        ):
+            if w is not None and w.isRunning():
+                try:
+                    getattr(w, sig).disconnect()
+                except Exception:
+                    pass
+                w.quit()
+                w.wait(1500)
+        event.accept()
 
     def refresh_all_positions(self):
         if not self.pet.portfolio:

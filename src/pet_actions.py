@@ -36,9 +36,9 @@ class PetActionHandler:
 
         pet.last_interaction_time = time.time()
         job_types = [
-            ("超商打工 (輕鬆)", 1, 10, 30),
-            ("咖啡廳幫忙 (一般)", 3, 35, 60),
-            ("文書外包 (高薪)", 5, 70, 100),
+            ("超商打工 (輕鬆)", "work1", 1, 10, 30),
+            ("sukiya端盤子 (一般)", "work2", 3, 35, 60),
+            ("修車工 (高薪)", "work3", 5, 70, 100),
         ]
 
         items = [f"{j[0]} - 耗時 {j[1]} 分鐘 (賺取 {j[2]} 金幣)" for j in job_types]
@@ -55,8 +55,9 @@ class PetActionHandler:
         if ok and choice:
             selected_job = next((j for j in job_types if j[0] in choice), None)
             if selected_job:
-                name, duration_min, reward_coins, reward_favor = selected_job
+                name, job_key, duration_min, reward_coins, reward_favor = selected_job
                 pet.is_working = True
+                pet.current_job_type = job_key
                 pet.current_work_loop_frame = 0
                 pet.update_image()
 
@@ -172,7 +173,9 @@ class PetActionHandler:
 
                 timer = QTimer(pet)
                 timer.setSingleShot(True)
-                timer.timeout.connect(lambda: PetActionHandler.trigger_todo_alarm(pet, task))
+                timer.timeout.connect(
+                    lambda t=timer, item=task: PetActionHandler.trigger_todo_alarm(pet, item, t)
+                )
                 timer.start(ms)
 
                 msg = f"已記下！會在 {minutes} 分鐘後提醒你：{task} 📝"
@@ -181,7 +184,12 @@ class PetActionHandler:
                 pet.update_discord_status(f"待辦事項：{task} 📝")
 
     @staticmethod
-    def trigger_todo_alarm(pet, task):
+    def trigger_todo_alarm(pet, task, timer=None):
+        if task in pet.todo_list:
+            pet.todo_list.remove(task)
+        if timer is not None:
+            timer.deleteLater()
+
         msg = f"叮咚！時間到囉！該處理這件事了：【{task}】💪"
         pet.show_speech_bubble(msg)
         pet.speak_text(f"主人！時間到了，快去處理：{task}")

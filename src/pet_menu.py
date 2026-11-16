@@ -173,13 +173,6 @@ class PetMenuManager:
             state_str = "開啟" if pet.voice_enabled else "關閉"
             pet.show_speech_bubble(f"語音功能已{state_str}囉！")
         elif action == exit_action:
-            pet.save_data()
-            try:
-                if hasattr(pet, "RPC"):
-                    pet.RPC.close()
-            except Exception:
-                pass
-            pet.bubble_widget.close()
-            QApplication.quit()
+            pet.close()
 
         _ = (volume_action, opacity_action)
