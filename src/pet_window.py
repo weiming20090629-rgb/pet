@@ -32,18 +32,30 @@ class DesktopPet(QWidget):
                     data = json.load(f)
                     self.favorability = data.get("favorability", 50)
                     self.coins = data.get("coins", 0)
+                    self.portfolio = data.get("portfolio", {})
+                    self.watchlist = data.get("watchlist", ["2330", "0050", "NVDA", "AAPL"])
+                    self.trade_history = data.get("trade_history", [])
             except:
                 self.favorability = 50
                 self.coins = 0
+                self.portfolio = {}
+                self.watchlist = ["2330", "0050", "NVDA", "AAPL"]
+                self.trade_history = []
         else:
             self.favorability = 50
             self.coins = 0
+            self.portfolio = {}
+            self.watchlist = ["2330", "0050", "NVDA", "AAPL"]
+            self.trade_history = []
 
     def save_data(self):
         try:
             data = {
                 "favorability": self.favorability,
-                "coins": self.coins
+                "coins": self.coins,
+                "portfolio": getattr(self, "portfolio", {}),
+                "watchlist": getattr(self, "watchlist", ["2330", "0050", "NVDA", "AAPL"]),
+                "trade_history": getattr(self, "trade_history", []),
             }
             with open(DATA_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)

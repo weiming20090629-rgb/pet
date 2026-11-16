@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import QMenu, QApplication, QInputDialog
 from .pet_actions import PetActionHandler
 from .workers import AIWorker
 from .styles import CONTEXT_MENU_STYLE, VOLUME_SLIDER_STYLE, DIALOG_STYLE
+from .pet_stock import StockDialog
 
 class PetMouseHandler:
     @staticmethod
@@ -144,15 +145,16 @@ class PetMouseHandler:
         wallet_action = menu.addAction("👛 查看錢包與狀態")  
         rps_action = menu.addAction("🎮 玩猜拳小遊戲")
         weather_action = menu.addAction("🌤️ 查詢目前天氣")
+        stock_action = menu.addAction("📈 股票交易室")
         
         todo_menu = menu.addMenu("📝 待辦事項與提醒")
         add_todo_action = todo_menu.addAction("➕ 新增待辦提醒")
         view_todo_action = todo_menu.addAction("📋 查看待辦清單")
         
-        
         voice_status_text = "🔊 語音朗讀：開啟" if pet.voice_enabled else "🔇 語音朗讀：關閉"
         voice_action = menu.addAction(voice_status_text)
- #音 量----------------------------------------------------------------------------------------
+
+        # 音量
         volume_container = QWidget()
         volume_layout = QHBoxLayout(volume_container)
         volume_layout.setContentsMargins(25, 4, 15, 4)
@@ -178,7 +180,7 @@ class PetMouseHandler:
         volume_action.setDefaultWidget(volume_container)
         menu.addAction(volume_action)
         
-#透明度----------------------------------------------------------------------------------------
+        # 透明度
         opacity_container = QWidget()
         opacity_layout = QHBoxLayout(opacity_container)
         opacity_layout.setContentsMargins(25, 4, 15, 4)
@@ -203,7 +205,6 @@ class PetMouseHandler:
         opacity_action = QWidgetAction(menu)
         opacity_action.setDefaultWidget(opacity_container)
         menu.addAction(opacity_action)
-
 
         menu.addSeparator()
         exit_action = menu.addAction("退出桌寵")
@@ -237,6 +238,9 @@ class PetMouseHandler:
             PetActionHandler.play_rps_game(pet)
         elif action == weather_action:
             pet.manual_check_weather()
+        elif action == stock_action:
+            dialog = StockDialog(pet)
+            dialog.exec_()
         elif action == add_todo_action:
             PetActionHandler.add_todo_item(pet)
         elif action == view_todo_action:
@@ -255,4 +259,3 @@ class PetMouseHandler:
                 pass
             pet.bubble_widget.close()
             QApplication.quit()
-            
