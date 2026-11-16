@@ -44,11 +44,12 @@ class PetMouseHandler:
     def handle_wheel_event(pet, event):
         angle = event.angleDelta().y()
         if angle > 0:
-            pet.scale_factor = min(pet.scale_factor + 0.1, 2.5)
+            pet.scale_factor = round(min(pet.scale_factor + 0.1, 2.5), 2)
         else:
-            pet.scale_factor = max(pet.scale_factor - 0.1, 0.4)
+            pet.scale_factor = round(max(pet.scale_factor - 0.1, 0.4), 2)
 
         pet.update_image()
+        pet.save_data()
         if pet.bubble_widget.isVisible():
             pet.update_bubble_position()
         event.accept()

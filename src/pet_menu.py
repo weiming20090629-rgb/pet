@@ -3,18 +3,15 @@ import winsound
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
-    QDialog,
     QHBoxLayout,
     QLabel,
     QMenu,
-    QPushButton,
     QSlider,
-    QVBoxLayout,
     QWidget,
     QWidgetAction,
 )
 from .pet_actions import PetActionHandler
-from .styles import CONTEXT_MENU_STYLE, DIALOG_STYLE, VOLUME_SLIDER_STYLE
+from .styles import CONTEXT_MENU_STYLE, VOLUME_SLIDER_STYLE
 from .pet_stock import StockDialog
 from .pet_shop import PetShopDialog
 
@@ -23,7 +20,9 @@ class PetMenuManager:
     """管理桌寵右鍵選單、音量/透明度滑桿與選單動作執行"""
 
     @staticmethod
-    def _build_slider_action(menu, label_prefix, initial_pct, min_val, max_val, on_change_callback):
+    def _build_slider_action(
+        menu, label_prefix, initial_pct, min_val, max_val, on_change_callback, on_release_callback=None
+    ):
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(25, 4, 15, 4)
@@ -41,6 +40,9 @@ class PetMenuManager:
             on_change_callback(val)
 
         slider.valueChanged.connect(handle_val)
+        if on_release_callback is not None:
+            slider.sliderReleased.connect(on_release_callback)
+
         layout.addWidget(val_label)
         layout.addWidget(slider)
 
@@ -50,45 +52,12 @@ class PetMenuManager:
         return action
 
     @staticmethod
-    def open_opacity_dialog(pet):
-        dlg = QDialog(pet)
-        dlg.setWindowTitle("調整桌寵透明度")
-        dlg.setWindowFlags(dlg.windowFlags() & ~Qt.WindowContextHelpButtonHint)
-        dlg.setStyleSheet(DIALOG_STYLE)
-        layout = QVBoxLayout(dlg)
-
-        current_pct = int(pet.windowOpacity() * 100)
-        label = QLabel(f"目前透明度：{current_pct}%")
-
-        slider = QSlider(Qt.Horizontal)
-        slider.setRange(20, 100)
-        slider.setValue(current_pct)
-        slider.setStyleSheet(VOLUME_SLIDER_STYLE)
-
-        def on_change(val):
-            pet.setWindowOpacity(val / 100.0)
-            label.setText(f"目前透明度：{val}%")
-
-        slider.valueChanged.connect(on_change)
-
-        btn_row = QHBoxLayout()
-        reset_btn = QPushButton("重設 100%")
-        reset_btn.clicked.connect(lambda: slider.setValue(100))
-        ok_btn = QPushButton("確定")
-        ok_btn.clicked.connect(dlg.accept)
-        btn_row.addWidget(reset_btn)
-        btn_row.addWidget(ok_btn)
-
-        layout.addWidget(label)
-        layout.addWidget(slider)
-        layout.addLayout(btn_row)
-        dlg.exec_()
-
-    @staticmethod
     def show_context_menu(pet, pos):
         menu = QMenu(pet)
         menu.setStyleSheet(CONTEXT_MENU_STYLE)
-        menu.setWindowFlags(menu.windowFlags() | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        menu.setWindowFlags(
+            menu.windowFlags() | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint
+        )
         menu.setAttribute(Qt.WA_TranslucentBackground, True)
 
         if pet.favorability >= 80:
@@ -114,24 +83,35 @@ class PetMenuManager:
         weather_action = menu.addAction("🌤️ 查詢目前天氣")
         stock_action = menu.addAction("📈 股票交易室")
 
+        skin_menu = menu.addMenu("🎨 更換皮膚")
+        current_skin = getattr(pet, "skin", "default")
+        skin_actions = {}
+        for s_name in pet.get_available_skins():
+            label = f"✓ {s_name}" if s_name == current_skin else f"  {s_name}"
+            act = skin_menu.addAction(label)
+            skin_actions[act] = s_name
+
         todo_menu = menu.addMenu("📝 待辦事項與提醒")
         add_todo_action = todo_menu.addAction("➕ 新增待辦提醒")
         view_todo_action = todo_menu.addAction("📋 查看待辦清單")
 
-        voice_status_text = "🔊 語音朗讀：開啟" if pet.voice_enabled else "🔇 語音朗讀：關閉"
+        voice_status_text = (
+            "🔊 語音朗讀：開啟" if pet.voice_enabled else "🔇 語音朗讀：關閉"
+        )
         voice_action = menu.addAction(voice_status_text)
 
         current_vol = getattr(pet, "voice_volume", 0.8)
         volume_action = PetMenuManager._build_slider_action(
             menu,
             "🔉 音量",
-            int(current_vol * 100),
+            int(round(current_vol * 100)),
             0,
             100,
             lambda val: setattr(pet, "voice_volume", val / 100.0),
+            on_release_callback=pet.save_data,
         )
 
-        current_opacity = int(pet.windowOpacity() * 100)
+        current_opacity = int(round(pet.windowOpacity() * 100))
         opacity_action = PetMenuManager._build_slider_action(
             menu,
             "🪟 透明度",
@@ -139,12 +119,14 @@ class PetMenuManager:
             20,
             100,
             lambda val: pet.setWindowOpacity(val / 100.0),
+            on_release_callback=pet.save_data,
         )
 
         menu.addSeparator()
         exit_action = menu.addAction("退出桌寵")
 
         action = menu.exec_(pos)
+        pet.save_data()
         pet.last_interaction_time = time.time()
 
         if action == pet_action:
@@ -179,17 +161,19 @@ class PetMenuManager:
         elif action == stock_action:
             dialog = StockDialog(pet)
             dialog.exec_()
+        elif action in skin_actions:
+            pet.change_skin(skin_actions[action])
         elif action == add_todo_action:
             PetActionHandler.add_todo_item(pet)
         elif action == view_todo_action:
             PetActionHandler.show_todo_list(pet)
         elif action == voice_action:
             pet.voice_enabled = not pet.voice_enabled
+            pet.save_data()
             state_str = "開啟" if pet.voice_enabled else "關閉"
             pet.show_speech_bubble(f"語音功能已{state_str}囉！")
-        elif action == opacity_action:
-            PetMenuManager.open_opacity_dialog(pet)
         elif action == exit_action:
+            pet.save_data()
             try:
                 if hasattr(pet, "RPC"):
                     pet.RPC.close()
@@ -198,4 +182,4 @@ class PetMenuManager:
             pet.bubble_widget.close()
             QApplication.quit()
 
-        _ = volume_action
+        _ = (volume_action, opacity_action)

@@ -26,8 +26,32 @@ class DesktopPet(QWidget):
             num = 80
         return max(0, min(100, num))
 
+    def _clamp_float(self, value, min_val, max_val, default):
+        try:
+            num = float(value)
+        except (TypeError, ValueError):
+            return default
+        return max(min_val, min(max_val, num))
+
     def load_data(self):
         default_inv = {"shield": 0, "charm": 0}
+        default_settings = {
+            "voice_enabled": True,
+            "voice_volume": 0.8,
+            "opacity": 1.0,
+            "scale_factor": 1.0,
+            "skin": "default",
+        }
+
+        self.favorability = 50
+        self.coins = 0
+        self.satiety = 80
+        self.portfolio = {}
+        self.watchlist = ["2330", "0050", "NVDA", "AAPL"]
+        self.trade_history = []
+        self.inventory = dict(default_inv)
+        self.settings = dict(default_settings)
+
         if os.path.exists(DATA_FILE):
             try:
                 with open(DATA_FILE, "r", encoding="utf-8") as f:
@@ -35,42 +59,90 @@ class DesktopPet(QWidget):
                     self.favorability = data.get("favorability", 50)
                     self.coins = data.get("coins", 0)
                     self.satiety = self._clamp_satiety(data.get("satiety", 80))
-                    self.portfolio = data.get("portfolio", {})
-                    self.watchlist = data.get("watchlist", ["2330", "0050", "NVDA", "AAPL"])
+                    self.portfolio = (
+                        data.get("portfolio", {})
+                        if isinstance(data.get("portfolio"), dict)
+                        else {}
+                    )
+                    self.watchlist = data.get(
+                        "watchlist", ["2330", "0050", "NVDA", "AAPL"]
+                    )
                     self.trade_history = data.get("trade_history", [])
-                    self.inventory = data.get("inventory", default_inv)
+
+                    inv = data.get("inventory", {})
+                    if isinstance(inv, dict):
+                        self.inventory = {
+                            "shield": int(inv.get("shield", 0) or 0),
+                            "charm": int(inv.get("charm", 0) or 0),
+                        }
+
+                    raw_settings = data.get("settings", {})
+                    if isinstance(raw_settings, dict):
+                        self.settings = {
+                            "voice_enabled": bool(
+                                raw_settings.get("voice_enabled", True)
+                            ),
+                            "voice_volume": self._clamp_float(
+                                raw_settings.get("voice_volume", 0.8), 0.0, 1.0, 0.8
+                            ),
+                            "opacity": self._clamp_float(
+                                raw_settings.get("opacity", 1.0), 0.2, 1.0, 1.0
+                            ),
+                            "scale_factor": self._clamp_float(
+                                raw_settings.get("scale_factor", 1.0), 0.4, 2.5, 1.0
+                            ),
+                            "skin": str(raw_settings.get("skin", "default") or "default"),
+                        }
             except Exception:
-                self.favorability = 50
-                self.coins = 0
-                self.satiety = 80
-                self.portfolio = {}
-                self.watchlist = ["2330", "0050", "NVDA", "AAPL"]
-                self.trade_history = []
-                self.inventory = default_inv
-        else:
-            self.favorability = 50
-            self.coins = 0
-            self.satiety = 80
-            self.portfolio = {}
-            self.watchlist = ["2330", "0050", "NVDA", "AAPL"]
-            self.trade_history = []
-            self.inventory = default_inv
+                pass
+
+        self.voice_enabled = self.settings["voice_enabled"]
+        self.voice_volume = self.settings["voice_volume"]
+        self.scale_factor = self.settings["scale_factor"]
+        self.skin = self.settings["skin"]
 
     def save_data(self):
         try:
+            settings_payload = {
+                "voice_enabled": bool(getattr(self, "voice_enabled", True)),
+                "voice_volume": self._clamp_float(
+                    getattr(self, "voice_volume", 0.8), 0.0, 1.0, 0.8
+                ),
+                "opacity": self._clamp_float(self.windowOpacity(), 0.2, 1.0, 1.0),
+                "scale_factor": self._clamp_float(
+                    getattr(self, "scale_factor", 1.0), 0.4, 2.5, 1.0
+                ),
+                "skin": str(getattr(self, "skin", "default") or "default"),
+            }
+            self.settings = settings_payload
+
             data = {
                 "favorability": self.favorability,
                 "coins": self.coins,
                 "satiety": self._clamp_satiety(getattr(self, "satiety", 80)),
                 "portfolio": getattr(self, "portfolio", {}),
-                "watchlist": getattr(self, "watchlist", ["2330", "0050", "NVDA", "AAPL"]),
+                "watchlist": getattr(
+                    self, "watchlist", ["2330", "0050", "NVDA", "AAPL"]
+                ),
                 "trade_history": getattr(self, "trade_history", []),
                 "inventory": getattr(self, "inventory", {"shield": 0, "charm": 0}),
+                "settings": settings_payload,
             }
             with open(DATA_FILE, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
         except Exception as e:
             print(f"存檔失敗: {e}")
+
+    def get_available_skins(self):
+        return PetAnimationManager.list_skins(script_dir)
+
+    def change_skin(self, skin_name):
+        if PetAnimationManager.switch_skin(self, script_dir, skin_name):
+            self.save_data()
+            msg = f"已切換為皮膚：【{self.skin}】✨"
+            self.show_speech_bubble(msg)
+            self.speak_text(f"換上新造型囉，{self.skin} 好看嗎？")
+            self.update_discord_status(f"造型：{self.skin} ✨")
 
     def speak_text(self, text):
         PetVoiceManager.speak(self, text)
@@ -80,20 +152,19 @@ class DesktopPet(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.voice_volume = 0.8
         self.load_data()
-        self.voice_enabled = True
         self.last_interaction_time = time.time()
         self.todo_list = []
         self.is_working = False
         self.is_reporting_work = False
 
         self.initUI()
+        self.setWindowOpacity(self.settings.get("opacity", 1.0))
 
         self.setMouseTracking(True)
         self.setCursor(QCursor(Qt.PointingHandCursor))
 
-        if PetAnimationManager.init_animations(self, script_dir):
+        if PetAnimationManager.init_animations(self, script_dir, self.skin):
             self.update_image()
             self.timer = QTimer(self)
             self.timer.timeout.connect(lambda: PetAnimationManager.next_frame(self))
@@ -110,13 +181,17 @@ class DesktopPet(QWidget):
         QTimer.singleShot(2000, self.check_weather_and_greet)
 
     def initUI(self):
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.SubWindow)
+        self.setWindowFlags(
+            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.SubWindow
+        )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
 
         self.label = QLabel(self)
         self.label.setAlignment(Qt.AlignCenter)
 
-        self.bubble_widget = QWidget(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.SubWindow)
+        self.bubble_widget = QWidget(
+            None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.SubWindow
+        )
         self.bubble_widget.setAttribute(Qt.WA_TranslucentBackground, True)
 
         self.bubble_label = QLabel(self.bubble_widget)
@@ -126,7 +201,6 @@ class DesktopPet(QWidget):
         self.dragging = False
         self.offset = QPoint()
         self.direction = 1
-        self.scale_factor = 1.0
         self.is_walking = True
 
     def initMovement(self):
@@ -146,7 +220,12 @@ class DesktopPet(QWidget):
         self.random_speak_timer.start(15000)
 
     def try_random_speak(self):
-        if self.dragging or self.bubble_widget.isVisible() or self.is_working or self.is_reporting_work:
+        if (
+            self.dragging
+            or self.bubble_widget.isVisible()
+            or self.is_working
+            or self.is_reporting_work
+        ):
             return
 
         if random.random() < 0.3:
@@ -287,6 +366,7 @@ class DesktopPet(QWidget):
         PetMouseHandler.handle_mouse_release(self, event)
 
     def closeEvent(self, event):
+        self.save_data()
         PetMonitorManager.close_discord_rpc(self)
         self.bubble_widget.close()
         event.accept()
