@@ -1,12 +1,13 @@
 import os
 import re
-from PyQt5.QtGui import QPixmap, QTransform
+from PyQt5.QtGui import QPainter, QPixmap, QTransform
 from PyQt5.QtCore import Qt
 
 
 class PetAnimationManager:
     VALID_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
     JOB_KEYS = ("work1", "work2", "work3")
+    WORK3_BG_ROTATE_STEP = 25  # work3 背景每次影格旋轉角度（度）
 
     @staticmethod
     def list_skins(root_dir):
@@ -58,6 +59,43 @@ class PetAnimationManager:
         return pixmaps
 
     @staticmethod
+    def _compose_rotating_scene(person_pm, bg_pm, angle):
+        """將旋轉後的背景圖與人物圖合成在同一張 QPixmap"""
+        if person_pm.isNull() and bg_pm.isNull():
+            return QPixmap()
+        if bg_pm.isNull():
+            return person_pm
+        if person_pm.isNull():
+            bg_transform = QTransform().rotate(angle)
+            return bg_pm.transformed(bg_transform, Qt.SmoothTransformation)
+
+        canvas_w = max(person_pm.width(), bg_pm.width())
+        canvas_h = max(person_pm.height(), bg_pm.height())
+        canvas = QPixmap(canvas_w, canvas_h)
+        canvas.fill(Qt.transparent)
+
+        painter = QPainter(canvas)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+
+        bg_transform = QTransform()
+        bg_transform.translate(bg_pm.width() / 2.0, bg_pm.height() / 2.0)
+        bg_transform.rotate(angle)
+        bg_transform.translate(-bg_pm.width() / 2.0, -bg_pm.height() / 2.0)
+        rotated_bg = bg_pm.transformed(bg_transform, Qt.SmoothTransformation)
+
+        bg_x = (canvas_w - rotated_bg.width()) // 2
+        bg_y = (canvas_h - rotated_bg.height()) // 2
+        painter.drawPixmap(bg_x, bg_y, rotated_bg)
+
+        person_x = (canvas_w - person_pm.width()) // 2
+        person_y = (canvas_h - person_pm.height()) // 2
+        painter.drawPixmap(person_x, person_y, person_pm)
+
+        painter.end()
+        return canvas
+
+    @staticmethod
     def init_animations(pet, root_dir, skin_name=None):
         assets_dir = os.path.join(root_dir, "assets")
         available_skins = PetAnimationManager.list_skins(root_dir)
@@ -78,13 +116,20 @@ class PetAnimationManager:
             frames = PetAnimationManager._load_numbered_sequence(default_dir, walk_pattern)
         pet.frames = frames
 
-        # 2. 載入單張狀態圖
+        # 2. 載入單張狀態圖與多張發呆序列 (idle_1.png, idle_2.png, ...)
         pet.drag_pixmap = PetAnimationManager._load_pixmap_with_fallback(
             skin_dir, default_dir, "pet_drag.png"
         )
         pet.idle_pixmap = PetAnimationManager._load_pixmap_with_fallback(
             skin_dir, default_dir, "pet_idle.png"
         )
+        idle_pattern = re.compile(r"^idle_(\d+)\.[^.]+$", re.IGNORECASE)
+        idle_frames = PetAnimationManager._load_numbered_sequence(skin_dir, idle_pattern)
+        if not idle_frames and skin_dir != default_dir:
+            idle_frames = PetAnimationManager._load_numbered_sequence(default_dir, idle_pattern)
+        pet.idle_frames = idle_frames
+        pet.current_idle_frame = 0
+
         pet.work_start_pixmap = PetAnimationManager._load_pixmap_with_fallback(
             skin_dir, default_dir, "work_start.png"
         )
@@ -106,11 +151,19 @@ class PetAnimationManager:
                 j_frames = PetAnimationManager._load_numbered_sequence(default_dir, job_pattern)
             pet.job_loop_frames[job_key] = j_frames
 
-            # 專屬完成/回報圖：work1_start.png, work2_start.png, work3_start.png
             j_start = PetAnimationManager._load_pixmap_with_fallback(
                 skin_dir, default_dir, f"{job_key}_start.png"
             )
             pet.job_start_pixmaps[job_key] = j_start
+
+        # 5. 工作三（work3）專屬：人物圖 + 旋轉背景圖
+        pet.work3_person_pixmap = PetAnimationManager._load_pixmap_with_fallback(
+            skin_dir, default_dir, "work3_person.png"
+        )
+        pet.work3_bg_pixmap = PetAnimationManager._load_pixmap_with_fallback(
+            skin_dir, default_dir, "work3_bg.png"
+        )
+        pet.work3_bg_angle = 0
 
         if not pet.frames:
             pet.label.setText("🐾 找不到圖片")
@@ -128,8 +181,13 @@ class PetAnimationManager:
         return True
 
     @staticmethod
+    def _has_work3_rotating_assets(pet):
+        return not getattr(pet, "work3_person_pixmap", QPixmap()).isNull() or not getattr(
+            pet, "work3_bg_pixmap", QPixmap()
+        ).isNull()
+
+    @staticmethod
     def _get_active_work_assets(pet):
-        """取得當前工作對應的 (循環圖列表, 完成回報圖)，若無專屬圖則自動退回通用打工圖"""
         job_key = getattr(pet, "current_job_type", "default")
         job_loops = getattr(pet, "job_loop_frames", {}).get(job_key, [])
         active_loops = job_loops if job_loops else getattr(pet, "work_loop_frames", [])
@@ -152,20 +210,40 @@ class PetAnimationManager:
         if not pet.frames:
             return
 
+        idle_frames = getattr(pet, "idle_frames", [])
+
         if pet.is_reporting_work:
             _, active_start = PetAnimationManager._get_active_work_assets(pet)
             pixmap = active_start if not active_start.isNull() else pet.frames[0]
         elif pet.is_working:
-            active_loops, active_start = PetAnimationManager._get_active_work_assets(pet)
-            if active_loops:
-                idx = pet.current_work_loop_frame % len(active_loops)
-                pixmap = active_loops[idx]
+            if (
+                getattr(pet, "current_job_type", "") == "work3"
+                and PetAnimationManager._has_work3_rotating_assets(pet)
+            ):
+                angle = getattr(pet, "work3_bg_angle", 0)
+                composed = PetAnimationManager._compose_rotating_scene(
+                    getattr(pet, "work3_person_pixmap", QPixmap()),
+                    getattr(pet, "work3_bg_pixmap", QPixmap()),
+                    angle,
+                )
+                pixmap = composed if not composed.isNull() else pet.frames[0]
             else:
-                pixmap = active_start if not active_start.isNull() else pet.frames[0]
+                active_loops, active_start = PetAnimationManager._get_active_work_assets(pet)
+                if active_loops:
+                    idx = pet.current_work_loop_frame % len(active_loops)
+                    pixmap = active_loops[idx]
+                else:
+                    pixmap = active_start if not active_start.isNull() else pet.frames[0]
         elif pet.dragging:
             pixmap = pet.drag_pixmap if not pet.drag_pixmap.isNull() else pet.frames[0]
-        elif not pet.is_walking and not pet.idle_pixmap.isNull():
-            pixmap = pet.idle_pixmap
+        elif not pet.is_walking:
+            if idle_frames:
+                idx = getattr(pet, "current_idle_frame", 0) % len(idle_frames)
+                pixmap = idle_frames[idx]
+            elif not pet.idle_pixmap.isNull():
+                pixmap = pet.idle_pixmap
+            else:
+                pixmap = pet.frames[0]
         else:
             idx = pet.current_frame % len(pet.frames)
             pixmap = pet.frames[idx]
@@ -192,6 +270,16 @@ class PetAnimationManager:
             return
 
         if pet.is_working:
+            if (
+                getattr(pet, "current_job_type", "") == "work3"
+                and PetAnimationManager._has_work3_rotating_assets(pet)
+            ):
+                pet.work3_bg_angle = (
+                    getattr(pet, "work3_bg_angle", 0) + PetAnimationManager.WORK3_BG_ROTATE_STEP
+                ) % 360
+                PetAnimationManager.update_image(pet)
+                return
+
             active_loops, _ = PetAnimationManager._get_active_work_assets(pet)
             if active_loops:
                 pet.current_work_loop_frame = (pet.current_work_loop_frame + 1) % len(active_loops)
@@ -201,6 +289,15 @@ class PetAnimationManager:
         if pet.is_reporting_work:
             return
 
-        if pet.is_walking and not pet.dragging:
-            pet.current_frame = (pet.current_frame + 1) % len(pet.frames)
-            PetAnimationManager.update_image(pet)
+        if pet.dragging:
+            return
+
+        if not pet.is_walking:
+            idle_frames = getattr(pet, "idle_frames", [])
+            if len(idle_frames) > 1:
+                pet.current_idle_frame = (getattr(pet, "current_idle_frame", 0) + 1) % len(idle_frames)
+                PetAnimationManager.update_image(pet)
+            return
+
+        pet.current_frame = (pet.current_frame + 1) % len(pet.frames)
+        PetAnimationManager.update_image(pet)

@@ -1,4 +1,4 @@
-import os
+﻿import os
 import requests
 from PyQt5.QtCore import QThread, pyqtSignal
 from google import genai
@@ -18,7 +18,7 @@ class AIWorker(QThread):
                 self.finished.emit("哎呀，你還沒在 .env 中填入 GEMINI_API_KEY 金鑰喔！")
                 return
 
-            client = genai.Client(api_key=API_KEY)
+            client = genai.Client(api_key=API_KEY, http_options={"api_version": "v1beta"})
             system_instruction = "你是一個可愛的桌面小桌寵，講話語氣要溫柔、俏皮，每次回答請控制在 30 個字以內。"
             
             response = client.models.generate_content(

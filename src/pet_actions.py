@@ -38,7 +38,7 @@ class PetActionHandler:
         job_types = [
             ("超商打工 (輕鬆)", "work1", 1, 10, 30),
             ("sukiya端盤子 (一般)", "work2", 3, 35, 60),
-            ("修車工 (高薪)", "work3", 5, 70, 100),
+            ("招搖撞騙 (高薪)", "work3", 5, 70, 100),
         ]
 
         items = [f"{j[0]} - 耗時 {j[1]} 分鐘 (賺取 {j[2]} 金幣)" for j in job_types]
