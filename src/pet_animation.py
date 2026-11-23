@@ -10,8 +10,15 @@ class PetAnimationManager:
     WORK3_BG_ROTATE_STEP = 25  # work3 背景每次影格旋轉角度（度）
 
     @staticmethod
-    def list_skins(root_dir):
-        assets_dir = os.path.join(root_dir, "assets")
+    def _resolve_assets_dir(base_dir):
+        if os.path.basename(os.path.normpath(base_dir)).lower() == "assets":
+            return base_dir
+        nested = os.path.join(base_dir, "assets")
+        return nested if os.path.isdir(nested) else base_dir
+
+    @staticmethod
+    def list_skins(base_dir):
+        assets_dir = PetAnimationManager._resolve_assets_dir(base_dir)
         if not os.path.isdir(assets_dir):
             return ["default"]
 
@@ -96,9 +103,16 @@ class PetAnimationManager:
         return canvas
 
     @staticmethod
+    def _resolve_assets_dir(root_dir):
+        if os.path.basename(os.path.normpath(root_dir)).lower() == "assets":
+            return root_dir
+        nested = os.path.join(root_dir, "assets")
+        return nested if os.path.isdir(nested) else root_dir
+
+    @staticmethod
     def init_animations(pet, root_dir, skin_name=None):
-        assets_dir = os.path.join(root_dir, "assets")
-        available_skins = PetAnimationManager.list_skins(root_dir)
+        assets_dir = PetAnimationManager._resolve_assets_dir(root_dir)
+        available_skins = PetAnimationManager.list_skins(assets_dir)
         chosen_skin = skin_name or getattr(pet, "skin", "default")
         if chosen_skin not in available_skins:
             chosen_skin = available_skins[0]
@@ -106,63 +120,57 @@ class PetAnimationManager:
 
         skin_dir = os.path.join(assets_dir, chosen_skin)
         default_dir = os.path.join(assets_dir, "default")
-        if not os.path.isdir(skin_dir) and os.path.isdir(assets_dir):
-            skin_dir = assets_dir
+
+        # 回退順序：目前皮膚資料夾 -> assets/default -> assets 根目錄本身
+        fallback_dirs = []
+        for folder in (skin_dir, default_dir, assets_dir):
+            if folder and os.path.isdir(folder) and folder not in fallback_dirs:
+                fallback_dirs.append(folder)
+
+        def _load_seq_with_fallback(pattern_regex):
+            for folder in fallback_dirs:
+                seq = PetAnimationManager._load_numbered_sequence(folder, pattern_regex)
+                if seq:
+                    return seq
+            return []
+
+        def _load_pm_with_fallback(filename):
+            for folder in fallback_dirs:
+                path = os.path.join(folder, filename)
+                if os.path.exists(path):
+                    pm = QPixmap(path)
+                    if not pm.isNull():
+                        return pm
+            return QPixmap()
 
         # 1. 動態載入走路動畫 (1.png, 2.png, ..., N.png)
         walk_pattern = re.compile(r"^(\d+)\.[^.]+$", re.IGNORECASE)
-        frames = PetAnimationManager._load_numbered_sequence(skin_dir, walk_pattern)
-        if not frames and skin_dir != default_dir:
-            frames = PetAnimationManager._load_numbered_sequence(default_dir, walk_pattern)
-        pet.frames = frames
+        pet.frames = _load_seq_with_fallback(walk_pattern)
 
         # 2. 載入單張狀態圖與多張發呆序列 (idle_1.png, idle_2.png, ...)
-        pet.drag_pixmap = PetAnimationManager._load_pixmap_with_fallback(
-            skin_dir, default_dir, "pet_drag.png"
-        )
-        pet.idle_pixmap = PetAnimationManager._load_pixmap_with_fallback(
-            skin_dir, default_dir, "pet_idle.png"
-        )
+        pet.drag_pixmap = _load_pm_with_fallback("pet_drag.png")
+        pet.idle_pixmap = _load_pm_with_fallback("pet_idle.png")
         idle_pattern = re.compile(r"^idle_(\d+)\.[^.]+$", re.IGNORECASE)
-        idle_frames = PetAnimationManager._load_numbered_sequence(skin_dir, idle_pattern)
-        if not idle_frames and skin_dir != default_dir:
-            idle_frames = PetAnimationManager._load_numbered_sequence(default_dir, idle_pattern)
-        pet.idle_frames = idle_frames
+        pet.idle_frames = _load_seq_with_fallback(idle_pattern)
         pet.current_idle_frame = 0
 
-        pet.work_start_pixmap = PetAnimationManager._load_pixmap_with_fallback(
-            skin_dir, default_dir, "work_start.png"
-        )
+        pet.work_start_pixmap = _load_pm_with_fallback("work_start.png")
 
         # 3. 載入通用打工循環動畫 (work_1.png, work_2.png, ...)
         default_work_pattern = re.compile(r"^work_(\d+)\.[^.]+$", re.IGNORECASE)
-        default_work_frames = PetAnimationManager._load_numbered_sequence(skin_dir, default_work_pattern)
-        if not default_work_frames and skin_dir != default_dir:
-            default_work_frames = PetAnimationManager._load_numbered_sequence(default_dir, default_work_pattern)
-        pet.work_loop_frames = default_work_frames
+        pet.work_loop_frames = _load_seq_with_fallback(default_work_pattern)
 
         # 4. 分別載入 3 種工作的專屬動畫 (work1_1.png, work2_1.png, work3_1.png ...)
         pet.job_loop_frames = {}
         pet.job_start_pixmaps = {}
         for job_key in PetAnimationManager.JOB_KEYS:
             job_pattern = re.compile(rf"^{job_key}_(\d+)\.[^.]+$", re.IGNORECASE)
-            j_frames = PetAnimationManager._load_numbered_sequence(skin_dir, job_pattern)
-            if not j_frames and skin_dir != default_dir:
-                j_frames = PetAnimationManager._load_numbered_sequence(default_dir, job_pattern)
-            pet.job_loop_frames[job_key] = j_frames
-
-            j_start = PetAnimationManager._load_pixmap_with_fallback(
-                skin_dir, default_dir, f"{job_key}_start.png"
-            )
-            pet.job_start_pixmaps[job_key] = j_start
+            pet.job_loop_frames[job_key] = _load_seq_with_fallback(job_pattern)
+            pet.job_start_pixmaps[job_key] = _load_pm_with_fallback(f"{job_key}_start.png")
 
         # 5. 工作三（work3）專屬：人物圖 + 旋轉背景圖
-        pet.work3_person_pixmap = PetAnimationManager._load_pixmap_with_fallback(
-            skin_dir, default_dir, "work3_person.png"
-        )
-        pet.work3_bg_pixmap = PetAnimationManager._load_pixmap_with_fallback(
-            skin_dir, default_dir, "work3_bg.png"
-        )
+        pet.work3_person_pixmap = _load_pm_with_fallback("work3_person.png")
+        pet.work3_bg_pixmap = _load_pm_with_fallback("work3_bg.png")
         pet.work3_bg_angle = 0
 
         if not pet.frames:

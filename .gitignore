@@ -1,4 +1,6 @@
-.env
 __pycache__/
-*.pyc
+*.py[cod]
+build/
+dist/
+*.spec
 pet_save.json

@@ -13,9 +13,10 @@ from .pet_mouse_handler import PetMouseHandler
 from .pet_voice import PetVoiceManager
 from .pet_monitors import PetMonitorManager
 from .pet_menu import PetMenuManager
+from .path_utils import get_assets_dir, get_save_path
 
-script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATA_FILE = os.path.join(script_dir, "pet_save.json")
+ASSETS_DIR = get_assets_dir()
+DATA_FILE = get_save_path("pet_save.json")
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID", "1566775719961427970")
 
 
@@ -135,10 +136,11 @@ class DesktopPet(QWidget):
             print(f"存檔失敗: {e}")
 
     def get_available_skins(self):
-        return PetAnimationManager.list_skins(script_dir)
+        return PetAnimationManager.list_skins(get_assets_dir())
 
     def change_skin(self, skin_name):
-        if PetAnimationManager.switch_skin(self, script_dir, skin_name):
+        assets_dir = get_assets_dir()
+        if PetAnimationManager.switch_skin(self, assets_dir, skin_name):
             self.save_data()
             msg = f"已切換為皮膚：【{self.skin}】✨"
             self.show_speech_bubble(msg)
@@ -152,12 +154,9 @@ class DesktopPet(QWidget):
             return
 
         self.tray_icon = QSystemTrayIcon(self)
-        self._update_tray_icon()
         self.tray_icon.setToolTip(f"桌面寵物 (好感度: {self.favorability} | 金幣: {self.coins})")
 
-        # 建立托盤右鍵選單
         tray_menu = QMenu()
-
         show_action = tray_menu.addAction("🐾 喚醒 / 移至螢幕中央")
         show_action.triggered.connect(self.bring_to_front)
 
@@ -165,25 +164,36 @@ class DesktopPet(QWidget):
         status_action.triggered.connect(lambda: PetMenuManager.show_context_menu(self, QCursor.pos()))
 
         tray_menu.addSeparator()
-
         exit_action = tray_menu.addAction("❌ 退出桌寵")
         exit_action.triggered.connect(self.close)
 
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.activated.connect(self._on_tray_activated)
-        self.tray_icon.show()
 
-    def _update_tray_icon(self):
+        if self._update_tray_icon():
+            self.tray_icon.show()
+
+    def _update_tray_icon(self) -> bool:
         """使用桌寵目前的待機圖或第一張動畫圖作為托盤圖示"""
-        if not hasattr(self, "tray_icon"):
-            return
-        pm = getattr(self, "idle_pixmap", None)
-        if pm is None or pm.isNull():
-            frames = getattr(self, "frames", [])
-            if frames:
-                pm = frames[0]
-        if pm is not None and not pm.isNull():
-            self.tray_icon.setIcon(QIcon(pm))
+        if not hasattr(self, "tray_icon") or self.tray_icon is None:
+            return False
+
+        candidates = [
+            getattr(self, "idle_pixmap", None),
+        ]
+        idle_frames = getattr(self, "idle_frames", [])
+        if idle_frames:
+            candidates.append(idle_frames[0])
+        frames = getattr(self, "frames", [])
+        if frames:
+            candidates.append(frames[0])
+
+        for pm in candidates:
+            if pm is not None and not pm.isNull():
+                self.tray_icon.setIcon(QIcon(pm))
+                return True
+
+        return False
 
     def _on_tray_activated(self, reason):
         """左鍵點擊或雙擊系統托盤圖示時，把桌寵移回螢幕中央並置頂"""
@@ -223,7 +233,8 @@ class DesktopPet(QWidget):
         self.setMouseTracking(True)
         self.setCursor(QCursor(Qt.PointingHandCursor))
 
-        if PetAnimationManager.init_animations(self, script_dir, self.skin):
+        assets_dir = get_assets_dir()
+        if PetAnimationManager.init_animations(self, assets_dir, self.skin):
             self.update_image()
             self.timer = QTimer(self)
             self.timer.timeout.connect(lambda: PetAnimationManager.next_frame(self))

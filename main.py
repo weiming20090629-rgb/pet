@@ -1,16 +1,24 @@
-import sys
 import os
-from PyQt5.QtWidgets import QApplication
+import sys
 from dotenv import load_dotenv
+from PyQt5.QtWidgets import QApplication
 
 load_dotenv()
 
-# 將 src 目錄加入系統路徑，方便內部模組互相引用
-sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+BASE_DIR = (
+    getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    if getattr(sys, "frozen", False)
+    else os.path.dirname(os.path.abspath(__file__))
+)
+SRC_DIR = os.path.join(BASE_DIR, "src")
+
+for p in (BASE_DIR, SRC_DIR):
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
 from src.pet_window import DesktopPet
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app = QApplication(sys.argv)
     pet = DesktopPet()
     pet.show()
