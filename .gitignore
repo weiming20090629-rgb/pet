@@ -4,3 +4,4 @@ build/
 dist/
 *.spec
 pet_save.json
+.env
