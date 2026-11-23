@@ -1,0 +1,10 @@
+﻿PyQt5
+python-dotenv
+yfinance
+gTTS
+miniaudio
+psutil
+pypresence
+google-genai
+numpy
+pywin32
