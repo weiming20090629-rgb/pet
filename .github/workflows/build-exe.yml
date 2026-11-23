@@ -1,3 +1,4 @@
+@"
 name: Build Windows EXE
 
 on:
@@ -18,18 +19,21 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          if exist requirements.txt pip install -r requirements.txt
-          pip install pyinstaller PyQt5 python-dotenv yfinance gtts miniaudio psutil pypresence
+          if (Test-Path "requirements.txt") { pip install -r requirements.txt }
+          pip install pyinstaller PyQt5 python-dotenv yfinance gtts miniaudio psutil pypresence google-genai numpy pywin32
 
       - name: Build with PyInstaller
+        shell: pwsh
         run: |
           pyinstaller --noconfirm DesktopPet.spec
-          if exist pet_save.json copy pet_save.json dist\DesktopPet\pet_save.json
-          if exist assets xcopy /E /I /Y assets dist\DesktopPet\assets
+          if (Test-Path "pet_save.json") { Copy-Item "pet_save.json" "dist\DesktopPet\pet_save.json" -Force }
+          if (Test-Path "assets") { Copy-Item "assets" "dist\DesktopPet\assets" -Recurse -Force }
 
       - name: Zip build output
+        shell: pwsh
         run: |
           Compress-Archive -Path dist\DesktopPet\* -DestinationPath DesktopPet-windows.zip -Force
 
@@ -37,3 +41,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: DesktopPet-windows.zip
+"@ | Set-Content -Path .\.github\workflows\build-exe.yml -Encoding UTF8
