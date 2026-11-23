@@ -54,7 +54,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=True,  # 先開 console 方便看錯誤訊息，成功後再改回 False
+    console=False,  # 先開 console 方便看錯誤訊息，成功後再改回 False
 )
 
 coll = COLLECT(
