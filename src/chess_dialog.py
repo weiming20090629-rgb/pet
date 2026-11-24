@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 from .stockfish_engine import StockfishMoveWorker
-from .styles import DIALOG_STYLE
+from .chess_style import CHESS_DIALOG_STYLE
 
 PIECE_SYMBOLS = {
     "P": "♙", "N": "♘", "B": "♗", "R": "♖", "Q": "♕", "K": "♔",
@@ -166,7 +166,7 @@ class ChessGameDialog(QDialog):
         self.worker = None
 
         self.setWindowTitle("與桌寵下西洋棋 ♟️")
-        self.setStyleSheet(DIALOG_STYLE)
+        self.setStyleSheet(CHESS_DIALOG_STYLE)
         self.setFixedSize(self.BOARD_SIZE + 24, self.BOARD_SIZE + 80)
 
         layout = QVBoxLayout(self)
