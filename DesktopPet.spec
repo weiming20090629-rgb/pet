@@ -22,6 +22,10 @@ hiddenimports = [
     "src.punishment",
     "src.styles",
     "src.workers",
+    'src.stockfish_engine',
+    'src.chess_dialog',
+    'chess',
+    'chess.engine'
 ]
 
 for pkg in ("yfinance", "gtts", "miniaudio"):
@@ -31,16 +35,23 @@ for pkg in ("yfinance", "gtts", "miniaudio"):
     hiddenimports += pkg_hidden
 
 a = Analysis(
-    ["main.py"],
-    pathex=["."],
-    binaries=binaries,
-    datas=datas,
-    hiddenimports=hiddenimports,
+    ['main.py'],
+    pathex=[],
+    binaries=[],
+    datas=[
+        ('assets', 'assets'),
+        ('src/*.py', 'src'),
+    ],
+    hiddenimports=[
+        'chess',
+        'chess.engine',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
     excludes=[],
     noarchive=False,
+    optimize=0,
 )
 pyz = PYZ(a.pure)
 
@@ -54,7 +65,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,  # 先開 console 方便看錯誤訊息，成功後再改回 False
+    console=True,  # 先開 console 方便看錯誤訊息，成功後再改回 False
 )
 
 coll = COLLECT(

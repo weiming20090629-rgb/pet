@@ -8,3 +8,4 @@ pypresence
 google-genai
 numpy
 pywin32
+chess

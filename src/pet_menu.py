@@ -80,6 +80,7 @@ class PetMenuManager:
         wallet_action = menu.addAction("👛 查看錢包與狀態")
         shop_action = menu.addAction("🛍️ 金幣商店 / 送禮")
         rps_action = menu.addAction("🎮 玩猜拳小遊戲")
+        chess_action = menu.addAction("♟️ 下西洋棋")
         weather_action = menu.addAction("🌤️ 查詢目前天氣")
         stock_action = menu.addAction("📈 股票交易室")
 
@@ -156,6 +157,8 @@ class PetMenuManager:
             dialog.exec_()
         elif action == rps_action:
             PetActionHandler.play_rps_game(pet)
+        elif action == chess_action:
+            PetActionHandler.play_chess_game(pet)
         elif action == weather_action:
             pet.manual_check_weather()
         elif action == stock_action:

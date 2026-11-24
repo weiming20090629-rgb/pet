@@ -4,9 +4,66 @@ import winsound
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtWidgets import QInputDialog, QMessageBox, QComboBox, QListView
 from .styles import DIALOG_STYLE
+from .stockfish_engine import StockfishMoveWorker, get_stockfish_path
+from .chess_dialog import ChessGameDialog
+
 
 
 class PetActionHandler:
+    @staticmethod
+    def play_chess_game(pet):
+        pet.last_interaction_time = time.time()
+        engine_path = get_stockfish_path()
+        if not engine_path.exists():
+            PetActionHandler._styled_info_box(
+                pet,
+                "找不到 Stockfish",
+                f"請先將 stockfish.exe 放在：\n{engine_path}",
+            )
+            return
+        pet.update_discord_status("正在下西洋棋 ♟️")
+        dlg = ChessGameDialog(pet)
+        dlg.exec_()
+
+
+    @staticmethod
+    def ask_stockfish_move(pet, fen: str = None, skill_level: int = 5):
+        pet.last_interaction_time = time.time()
+        engine_path = get_stockfish_path()
+        if not engine_path.exists():
+            PetActionHandler._styled_info_box(
+                pet,
+                "找不到 Stockfish",
+                f"請先將 stockfish.exe 放在：\n{engine_path}",
+            )
+            return
+
+        if getattr(pet, "_chess_worker", None) and pet._chess_worker.isRunning():
+            pet.show_speech_bubble("我還在努力算棋中，等我一下～♟️")
+            return
+
+        start_fen = fen or "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        pet.show_speech_bubble("讓我想想這步棋怎麼走... ♟️")
+        pet.update_discord_status("正在用 Stockfish 算棋 ♟️")
+
+        worker = StockfishMoveWorker(fen=start_fen, skill_level=skill_level, think_time=0.4, parent=pet)
+
+        def _on_move_ready(move_uci, eval_text):
+            msg = f"建議走法：{move_uci}" + (f"（{eval_text}）" if eval_text else "")
+            pet.show_speech_bubble(msg)
+            pet.speak_text(f"我覺得可以走 {move_uci} 喔！")
+            PetActionHandler._styled_info_box(pet, "Stockfish 算棋結果", msg)
+
+        def _on_error(err_msg):
+            pet.show_speech_bubble("算棋時出了一點小狀況...")
+            PetActionHandler._styled_info_box(pet, "Stockfish 錯誤", err_msg)
+
+        worker.move_ready.connect(_on_move_ready)
+        worker.error_occurred.connect(_on_error)
+        worker.finished.connect(worker.deleteLater)
+        pet._chess_worker = worker
+        worker.start()
+
     @staticmethod
     def _style_combo_dialog(dialog):
         dialog.setStyleSheet(DIALOG_STYLE)
