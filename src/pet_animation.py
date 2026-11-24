@@ -17,15 +17,23 @@ class PetAnimationManager:
         return nested if os.path.isdir(nested) else base_dir
 
     @staticmethod
-    def list_skins(base_dir):
+    def _resolve_skins_dir(base_dir):
         assets_dir = PetAnimationManager._resolve_assets_dir(base_dir)
-        if not os.path.isdir(assets_dir):
+        skins_dir = os.path.join(assets_dir, "skins")
+        return skins_dir if os.path.isdir(skins_dir) else assets_dir
+    
+    @staticmethod
+    def list_skins(base_dir):
+        skins_dir = PetAnimationManager._resolve_skins_dir(base_dir)
+        if not os.path.isdir(skins_dir):
             return ["default"]
 
         skins = sorted(
             name
-            for name in os.listdir(assets_dir)
-            if os.path.isdir(os.path.join(assets_dir, name)) and not name.startswith(".")
+            for name in os.listdir(skins_dir)
+            if os.path.isdir(os.path.join(skins_dir, name))
+            and not name.startswith(".")
+            and name.lower() != "engine"
         )
         return skins if skins else ["default"]
 
@@ -112,21 +120,22 @@ class PetAnimationManager:
     @staticmethod
     def init_animations(pet, root_dir, skin_name=None):
         assets_dir = PetAnimationManager._resolve_assets_dir(root_dir)
-        available_skins = PetAnimationManager.list_skins(assets_dir)
+        skins_dir = PetAnimationManager._resolve_skins_dir(root_dir)
+        available_skins = PetAnimationManager.list_skins(root_dir)
         chosen_skin = skin_name or getattr(pet, "skin", "default")
         if chosen_skin not in available_skins:
             chosen_skin = available_skins[0]
         pet.skin = chosen_skin
 
-        skin_dir = os.path.join(assets_dir, chosen_skin)
-        default_dir = os.path.join(assets_dir, "default")
+        skin_dir = os.path.join(skins_dir, chosen_skin)
+        default_dir = os.path.join(skins_dir, "default")
 
-        # 回退順序：目前皮膚資料夾 -> assets/default -> assets 根目錄本身
+        # 回退順序：目前皮膚資料夾 -> skins/default -> assets 根目錄本身
         fallback_dirs = []
         for folder in (skin_dir, default_dir, assets_dir):
             if folder and os.path.isdir(folder) and folder not in fallback_dirs:
                 fallback_dirs.append(folder)
-
+                
         def _load_seq_with_fallback(pattern_regex):
             for folder in fallback_dirs:
                 seq = PetAnimationManager._load_numbered_sequence(folder, pattern_regex)
