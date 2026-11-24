@@ -73,3 +73,24 @@ def set_autostart(enabled: bool) -> tuple[bool, str]:
             return True, "已關閉開機自動啟動"
     except Exception as e:
         return False, f"設定失敗：{e}"
+
+INIT_FLAG_NAME = ".autostart_initialized"
+
+
+def ensure_autostart_on_first_run() -> tuple[bool, str]:
+    """僅在打包後的 .exe 首次啟動時自動加入開機啟動，之後尊重使用者手動變更。"""
+    if sys.platform != "win32" or not getattr(sys, "frozen", False):
+        return False, "非 Windows 打包版，略過自動加入"
+
+    exe_dir = Path(sys.executable).resolve().parent
+    flag_path = exe_dir / INIT_FLAG_NAME
+
+    if flag_path.exists():
+        return False, "已完成首次開機啟動初始化"
+
+    ok, msg = set_autostart(True)
+    try:
+        flag_path.write_text("1", encoding="utf-8")
+    except Exception:
+        pass
+    return ok, msg

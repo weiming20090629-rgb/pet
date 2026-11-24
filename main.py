@@ -2,6 +2,7 @@ import os
 import sys
 from dotenv import load_dotenv
 from PyQt5.QtWidgets import QApplication
+from src.startup_utils import ensure_autostart_on_first_run
 
 load_dotenv()
 
@@ -19,6 +20,7 @@ for p in (BASE_DIR, SRC_DIR):
 from src.pet_window import DesktopPet
 
 if __name__ == "__main__":
+    ensure_autostart_on_first_run()
     app = QApplication(sys.argv)
     pet = DesktopPet()
     pet.show()
